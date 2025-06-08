@@ -126,6 +126,13 @@ const patientSchema = new mongoose.Schema({
     default: true
   },
   
+  // Patient status for appointment workflow
+  status: {
+    type: String,
+    enum: ['New', 'Active', 'Inactive'],
+    default: 'New'
+  },
+  
   notes: [{
     text: { type: String, trim: true },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
@@ -138,9 +145,15 @@ const patientSchema = new mongoose.Schema({
 // Auto-generate patient ID
 patientSchema.pre('save', async function(next) {
   if (!this.patientId) {
-    const count = await this.constructor.countDocuments();
-    const prefix = this.patientType === 'pediatric' ? 'PED' : 'OBG';
-    this.patientId = `${prefix}${String(count + 1).padStart(6, '0')}`;
+    try {
+      const prefix = this.patientType === 'pediatric' ? 'PED' : 'OBG';
+      const count = await this.constructor.countDocuments({ patientType: this.patientType });
+      this.patientId = `${prefix}${String(count + 1).padStart(6, '0')}`;
+      console.log(`Generated patientId: ${this.patientId} for patientType: ${this.patientType}`);
+    } catch (error) {
+      console.error('Error generating patientId:', error);
+      return next(error);
+    }
   }
   next();
 });

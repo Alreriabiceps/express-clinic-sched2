@@ -3,24 +3,28 @@ import { body, validationResult } from 'express-validator';
 import Appointment from '../models/Appointment.js';
 import Patient from '../models/Patient.js';
 import PatientUser from '../models/PatientUser.js';
+import { authenticatePatient } from '../middleware/patientAuth.js';
 
 const router = express.Router();
 
-// Get available time slots for a specific date and doctor
-router.get('/available-slots', async (req, res) => {
+// Get available dates for a specific doctor
+router.get('/available-dates', async (req, res) => {
   try {
-    const { date, doctorName, serviceType } = req.query;
+    const { doctorId } = req.query;
     
-    if (!date || !doctorName) {
+    console.log('Available dates request for doctorId:', doctorId);
+    
+    if (!doctorId) {
       return res.status(400).json({
         success: false,
-        message: 'Date and doctor name are required'
+        message: 'Doctor ID is required'
       });
     }
 
-    // Define doctor schedules
+    // Define doctor schedules with IDs
     const doctorSchedules = {
-      'Dr. Maria Sarah L. Manaloto': {
+      'doc_1': {
+        name: 'Dr. Maria Sarah L. Manaloto',
         specialty: 'ob-gyne',
         schedule: {
           'Monday': { start: '08:00', end: '12:00' },
@@ -28,7 +32,8 @@ router.get('/available-slots', async (req, res) => {
           'Friday': { start: '13:00', end: '17:00' }
         }
       },
-      'Dr. Shara Laine S. Vino': {
+      'doc_2': {
+        name: 'Dr. Shara Laine S. Vino',
         specialty: 'pediatric',
         schedule: {
           'Monday': { start: '13:00', end: '17:00' },
@@ -38,7 +43,10 @@ router.get('/available-slots', async (req, res) => {
       }
     };
 
-    const doctor = doctorSchedules[doctorName];
+    const doctor = doctorSchedules[doctorId];
+    console.log('Found doctor:', doctor ? doctor.name : 'NOT FOUND');
+    console.log('Doctor schedule:', doctor ? doctor.schedule : 'NO SCHEDULE');
+    
     if (!doctor) {
       return res.status(400).json({
         success: false,
@@ -46,25 +54,126 @@ router.get('/available-slots', async (req, res) => {
       });
     }
 
-    // Get day of week for the selected date
-    const selectedDate = new Date(date);
+    // Get the next 90 days
+    const availableDates = [];
+    const today = new Date();
+    const maxDate = new Date();
+    maxDate.setDate(today.getDate() + 90); // 3 months ahead
+
+    // Start from tomorrow
+    const checkDate = new Date(today);
+    checkDate.setDate(checkDate.getDate() + 1);
+
+    while (checkDate <= maxDate) {
+      const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+      const dayOfWeek = dayNames[checkDate.getDay()];
+      
+      // Check if doctor works on this day
+      if (doctor.schedule[dayOfWeek]) {
+        // Fix timezone issue by using local date formatting
+        const year = checkDate.getFullYear();
+        const month = String(checkDate.getMonth() + 1).padStart(2, '0');
+        const day = String(checkDate.getDate()).padStart(2, '0');
+        const dateStr = `${year}-${month}-${day}`;
+        availableDates.push(dateStr);
+        console.log(`Adding available date: ${dateStr} (${dayOfWeek})`);
+      }
+      
+      // Move to next day
+      checkDate.setDate(checkDate.getDate() + 1);
+    }
+
+    console.log(`Total available dates for ${doctor.name}: ${availableDates.length}`);
+
+    res.json({
+      success: true,
+      data: {
+        availableDates,
+        doctorInfo: {
+          name: doctor.name,
+          specialty: doctor.specialty,
+          workingDays: Object.keys(doctor.schedule)
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('Available dates error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error retrieving available dates'
+    });
+  }
+});
+
+// Get available time slots for a specific date and doctor
+router.get('/available-slots', async (req, res) => {
+  try {
+    const { date, doctorId } = req.query;
+    
+    console.log('Available slots request:', { date, doctorId });
+    
+    if (!date || !doctorId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Date and doctor ID are required'
+      });
+    }
+
+    // Define doctor schedules with IDs
+    const doctorSchedules = {
+      'doc_1': {
+        name: 'Dr. Maria Sarah L. Manaloto',
+        specialty: 'ob-gyne',
+        schedule: {
+          'Monday': { start: '08:00', end: '12:00' },
+          'Wednesday': { start: '09:00', end: '14:00' },
+          'Friday': { start: '13:00', end: '17:00' }
+        }
+      },
+      'doc_2': {
+        name: 'Dr. Shara Laine S. Vino',
+        specialty: 'pediatric',
+        schedule: {
+          'Monday': { start: '13:00', end: '17:00' },
+          'Tuesday': { start: '13:00', end: '17:00' },
+          'Thursday': { start: '08:00', end: '12:00' }
+        }
+      }
+    };
+
+    const doctor = doctorSchedules[doctorId];
+    if (!doctor) {
+      return res.status(400).json({
+        success: false,
+        message: 'Doctor not found'
+      });
+    }
+
+    // Get day of week for the selected date - FIXED TIMEZONE ISSUE
+    const selectedDate = new Date(date + 'T12:00:00'); // Add time to avoid timezone issues
     const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
     const dayOfWeek = dayNames[selectedDate.getDay()];
 
+    console.log('Date info:', { selectedDate, dayOfWeek, schedule: doctor.schedule });
+
     // Check if doctor works on this day
     if (!doctor.schedule[dayOfWeek]) {
+      console.log(`Doctor ${doctor.name} not available on ${dayOfWeek}`);
       return res.json({
         success: true,
         data: {
           availableSlots: [],
-          message: `${doctorName} is not available on ${dayOfWeek}s`
+          message: `${doctor.name} is not available on ${dayOfWeek}s`
         }
       });
     }
 
     // Generate time slots (30-minute intervals)
     const { start, end } = doctor.schedule[dayOfWeek];
+    console.log('Generating slots for:', { start, end, dayOfWeek });
     const timeSlots = generateTimeSlots(start, end, 30);
+    console.log('Generated time slots:', timeSlots);
 
     // Get existing appointments for this date and doctor
     const existingAppointments = await Appointment.find({
@@ -72,20 +181,24 @@ router.get('/available-slots', async (req, res) => {
         $gte: new Date(date + 'T00:00:00.000Z'),
         $lt: new Date(date + 'T23:59:59.999Z')
       },
-      doctorName,
+      doctorName: doctor.name,
       status: { $nin: ['cancelled'] }
     });
+
+    console.log('Existing appointments:', existingAppointments.length);
 
     // Filter out booked slots
     const bookedTimes = existingAppointments.map(apt => apt.appointmentTime);
     const availableSlots = timeSlots.filter(slot => !bookedTimes.includes(slot));
 
+    console.log('Available slots:', availableSlots);
+
     res.json({
       success: true,
       data: {
-        availableSlots,
+        slots: availableSlots,
         doctorInfo: {
-          name: doctorName,
+          name: doctor.name,
           specialty: doctor.specialty,
           workingHours: `${start} - ${end}`
         }
@@ -106,6 +219,7 @@ router.get('/doctors', async (req, res) => {
   try {
     const doctors = [
       {
+        _id: 'doc_1',
         name: 'Dr. Maria Sarah L. Manaloto',
         specialty: 'OB-GYNE',
         specialtyCode: 'ob-gyne',
@@ -118,6 +232,7 @@ router.get('/doctors', async (req, res) => {
         workingDays: ['Monday', 'Wednesday', 'Friday']
       },
       {
+        _id: 'doc_2',
         name: 'Dr. Shara Laine S. Vino',
         specialty: 'Pediatric',
         specialtyCode: 'pediatric',
@@ -146,7 +261,7 @@ router.get('/doctors', async (req, res) => {
 });
 
 // Book an appointment
-router.post('/book-appointment', [
+router.post('/book-appointment', authenticatePatient, [
   body('doctorName').notEmpty().withMessage('Doctor name is required'),
   body('appointmentDate').isISO8601().withMessage('Valid appointment date is required'),
   body('appointmentTime').notEmpty().withMessage('Appointment time is required'),
@@ -175,9 +290,8 @@ router.post('/book-appointment', [
       dependentInfo
     } = req.body;
 
-    // Get patient user info (you'll need to implement auth middleware)
-    const patientUserId = req.user?.id || req.body.patientUserId; // For testing
-    const patientUser = await PatientUser.findById(patientUserId);
+    // Get patient user info from authenticated request
+    const patientUser = await PatientUser.findById(req.patient.id);
     
     if (!patientUser) {
       return res.status(404).json({
@@ -225,20 +339,142 @@ router.post('/book-appointment', [
     const appointmentCount = await Appointment.countDocuments();
     const appointmentId = `APT${String(appointmentCount + 1).padStart(6, '0')}`;
 
-    // Create appointment
+    // Map specialty to doctorType and serviceType
+    const doctorSchedules = {
+      'Dr. Maria Sarah L. Manaloto': {
+        doctorType: 'ob-gyne',
+        defaultServiceType: 'PRENATAL_CHECKUP'
+      },
+      'Dr. Shara Laine S. Vino': {
+        doctorType: 'pediatric', 
+        defaultServiceType: 'WELL_CHILD_CHECKUP'
+      }
+    };
+
+    const doctorInfo = doctorSchedules[doctorName];
+    if (!doctorInfo) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid doctor selected'
+      });
+    }
+
+    // Find or create patient record linked to PatientUser
+    let patientRecord = await Patient.findOne({ 
+      'contactInfo.email': patientUser.email 
+    });
+
+    if (!patientRecord) {
+      // Create new patient record with status 'New'
+      const patientData = {
+        patientType: doctorInfo.doctorType,
+        contactInfo: {
+          email: patientUser.email,
+          emergencyContact: patientUser.emergencyContact || {}
+        },
+        status: 'New' // Set initial status as 'New' when booking appointment
+      };
+
+      if (doctorInfo.doctorType === 'pediatric') {
+        patientData.pediatricRecord = {
+          nameOfMother: patientType === 'self' ? '' : patientUser.fullName, // If booking for dependent, parent is the mother
+          nameOfFather: '',
+          nameOfChildren: patientType === 'dependent' ? dependentInfo?.name || '' : patientUser.fullName,
+          address: `${patientUser.address?.street || ''}, ${patientUser.address?.city || ''}, ${patientUser.address?.province || ''}`.trim() || 'Not provided',
+          contactNumber: patientUser.phoneNumber,
+          birthDate: patientType === 'dependent' && dependentInfo?.age 
+            ? new Date(new Date().getFullYear() - dependentInfo.age, 0, 1) 
+            : patientUser.dateOfBirth,
+          immunizations: [],
+          consultations: []
+        };
+      } else {
+        // For OB-GYNE patients, ensure patientName is set (required field)
+        const patientName = patientType === 'dependent' ? dependentInfo?.name : patientUser.fullName;
+        if (!patientName) {
+          throw new Error('Patient name is required for OB-GYNE records');
+        }
+        
+        patientData.obGyneRecord = {
+            patientName: patientName,
+            address: `${patientUser.address?.street || ''}, ${patientUser.address?.city || ''}, ${patientUser.address?.province || ''}`.trim() || 'Not provided',
+            contactNumber: patientUser.phoneNumber,
+            birthDate: patientType === 'dependent' && dependentInfo?.age 
+              ? new Date(new Date().getFullYear() - dependentInfo.age, 0, 1) 
+              : patientUser.dateOfBirth,
+            civilStatus: 'Single', // Default value, can be updated later
+            occupation: '',
+            pastMedicalHistory: {
+              hypertension: false,
+              diabetes: false,
+              heartDisease: false,
+              asthma: false,
+              allergies: '',
+              medications: '',
+              surgeries: '',
+              other: ''
+            },
+            obstetricHistory: [],
+            gynecologicHistory: {
+              menstrualCycle: '',
+              contraceptiveUse: '',
+              gravida: 0,
+              para: 0,
+              abortions: 0
+            },
+            consultations: []
+          };
+      }
+
+      try {
+        // Manually generate patientId before creating the record
+        const prefix = doctorInfo.doctorType === 'pediatric' ? 'PED' : 'OBG';
+        const count = await Patient.countDocuments({ patientType: doctorInfo.doctorType });
+        const generatedPatientId = `${prefix}${String(count + 1).padStart(6, '0')}`;
+        
+        patientData.patientId = generatedPatientId;
+        console.log('Creating patient with generated patientId:', generatedPatientId);
+        
+        patientRecord = new Patient(patientData);
+        await patientRecord.save();
+        console.log('Patient saved successfully with patientId:', patientRecord.patientId);
+      } catch (patientError) {
+        console.error('Error creating patient record:', patientError);
+        throw new Error(`Failed to create patient record: ${patientError.message}`);
+      }
+
+      // Link patient record to PatientUser
+      patientUser.patientRecord = patientRecord._id;
+      await patientUser.save();
+    } else {
+      // Update existing patient record status to 'New' if it was 'Inactive'
+      if (patientRecord.status === 'Inactive') {
+        patientRecord.status = 'New';
+        await patientRecord.save();
+      }
+    }
+
+    // Create appointment with all required fields
     const appointment = new Appointment({
       appointmentId,
-      patientName,
-      contactNumber,
+      patient: patientRecord._id, // Link to patient record
+      patientUserId: patientUser._id,
+      doctorType: doctorInfo.doctorType,
       doctorName,
       appointmentDate: new Date(appointmentDate),
       appointmentTime,
-      serviceType,
+      serviceType: doctorInfo.defaultServiceType, // Always use the correct default service type
+      contactInfo: {
+        primaryPhone: patientUser.phoneNumber,
+        email: patientUser.email
+      },
+      patientName,
+      contactNumber: patientUser.phoneNumber,
+      patientType,
+      dependentInfo: patientType === 'dependent' ? dependentInfo : undefined,
       reasonForVisit: reasonForVisit || 'General consultation',
       status: 'scheduled',
-      patientUserId: patientUser._id,
-      patientType,
-      dependentInfo: patientType === 'dependent' ? dependentInfo : undefined
+      bookingSource: 'patient_portal'
     });
 
     await appointment.save();
@@ -265,27 +501,21 @@ router.post('/book-appointment', [
 
   } catch (error) {
     console.error('Book appointment error:', error);
+    console.error('Error stack:', error.stack);
+    console.error('Request body:', JSON.stringify(req.body, null, 2));
     res.status(500).json({
       success: false,
-      message: 'Error booking appointment'
+      message: 'Error booking appointment',
+      error: error.message // Always return error message for now to debug
     });
   }
 });
 
 // Get patient's appointments
-router.get('/my-appointments', async (req, res) => {
+router.get('/my-appointments', authenticatePatient, async (req, res) => {
   try {
-    const patientUserId = req.user?.id || req.query.patientUserId; // For testing
-    
-    if (!patientUserId) {
-      return res.status(401).json({
-        success: false,
-        message: 'Authentication required'
-      });
-    }
-
     const appointments = await Appointment.find({
-      patientUserId
+      patientUserId: req.patient.id
     }).sort({ appointmentDate: -1, appointmentTime: -1 });
 
     res.json({
@@ -303,14 +533,13 @@ router.get('/my-appointments', async (req, res) => {
 });
 
 // Cancel appointment
-router.put('/cancel-appointment/:appointmentId', async (req, res) => {
+router.put('/cancel-appointment/:appointmentId', authenticatePatient, async (req, res) => {
   try {
     const { appointmentId } = req.params;
-    const patientUserId = req.user?.id || req.body.patientUserId; // For testing
     
     const appointment = await Appointment.findOne({
       appointmentId,
-      patientUserId
+      patientUserId: req.patient.id
     });
 
     if (!appointment) {

@@ -3,10 +3,11 @@ import { body, validationResult } from 'express-validator';
 import PatientUser from '../models/PatientUser.js';
 import Patient from '../models/Patient.js';
 import { 
-  generateToken, 
-  generateRefreshToken, 
-  verifyRefreshToken
-} from '../middleware/auth.js';
+  authenticatePatient,
+  generatePatientToken, 
+  generatePatientRefreshToken, 
+  verifyPatientRefreshToken
+} from '../middleware/patientAuth.js';
 
 const router = express.Router();
 
@@ -18,6 +19,7 @@ router.post('/register', [
   body('lastName').trim().notEmpty().withMessage('Last name is required'),
   body('phoneNumber').trim().notEmpty().withMessage('Phone number is required'),
   body('dateOfBirth').isISO8601().withMessage('Valid date of birth is required'),
+  body('gender').isIn(['Male', 'Female', 'Other']).withMessage('Valid gender is required'),
 ], async (req, res) => {
   try {
     // Check for validation errors
@@ -30,7 +32,7 @@ router.post('/register', [
       });
     }
 
-    const { email, password, firstName, lastName, phoneNumber, dateOfBirth, address, emergencyContact } = req.body;
+    const { email, password, firstName, lastName, phoneNumber, dateOfBirth, gender, address, emergencyContact } = req.body;
 
     // Check if patient already exists
     const existingPatient = await PatientUser.findOne({ email });
@@ -49,6 +51,7 @@ router.post('/register', [
       lastName,
       phoneNumber,
       dateOfBirth,
+      gender,
       address,
       emergencyContact
     });
@@ -56,8 +59,8 @@ router.post('/register', [
     await patientUser.save();
 
     // Generate tokens
-    const token = generateToken(patientUser);
-    const refreshToken = generateRefreshToken(patientUser);
+    const token = generatePatientToken(patientUser);
+    const refreshToken = generatePatientRefreshToken(patientUser);
 
     res.status(201).json({
       success: true,
@@ -71,6 +74,7 @@ router.post('/register', [
           fullName: patientUser.fullName,
           phoneNumber: patientUser.phoneNumber,
           dateOfBirth: patientUser.dateOfBirth,
+          gender: patientUser.gender,
           age: patientUser.age,
           address: patientUser.address,
           emergencyContact: patientUser.emergencyContact,
@@ -135,8 +139,8 @@ router.post('/login', [
     await patientUser.save();
 
     // Generate tokens
-    const token = generateToken(patientUser);
-    const refreshToken = generateRefreshToken(patientUser);
+    const token = generatePatientToken(patientUser);
+    const refreshToken = generatePatientRefreshToken(patientUser);
 
     res.json({
       success: true,
@@ -150,6 +154,7 @@ router.post('/login', [
           fullName: patientUser.fullName,
           phoneNumber: patientUser.phoneNumber,
           dateOfBirth: patientUser.dateOfBirth,
+          gender: patientUser.gender,
           age: patientUser.age,
           address: patientUser.address,
           emergencyContact: patientUser.emergencyContact,
@@ -172,20 +177,9 @@ router.post('/login', [
 });
 
 // Patient profile endpoint
-router.get('/profile', async (req, res) => {
+router.get('/profile', authenticatePatient, async (req, res) => {
   try {
-    // This will be protected by patient auth middleware
-    const token = req.headers.authorization?.split(' ')[1];
-    if (!token) {
-      return res.status(401).json({
-        success: false,
-        message: 'Authentication token required'
-      });
-    }
-
-    // For now, we'll implement a simple token verification
-    // In production, you'd want proper JWT middleware
-    const patientUser = await PatientUser.findById(req.user?.id || req.body.userId)
+    const patientUser = await PatientUser.findById(req.patient.id)
       .populate('patientRecord');
 
     if (!patientUser) {
@@ -212,7 +206,7 @@ router.get('/profile', async (req, res) => {
 });
 
 // Update patient profile
-router.put('/profile', [
+router.put('/profile', authenticatePatient, [
   body('firstName').optional().trim().notEmpty(),
   body('lastName').optional().trim().notEmpty(),
   body('phoneNumber').optional().trim().notEmpty(),
@@ -232,7 +226,7 @@ router.put('/profile', [
     delete updates.password; // Don't allow password updates through this endpoint
 
     const patientUser = await PatientUser.findByIdAndUpdate(
-      req.user?.id || req.body.userId,
+      req.patient.id,
       updates,
       { new: true, runValidators: true }
     );
@@ -262,7 +256,7 @@ router.put('/profile', [
 });
 
 // Change password
-router.put('/change-password', [
+router.put('/change-password', authenticatePatient, [
   body('currentPassword').notEmpty().withMessage('Current password is required'),
   body('newPassword').isLength({ min: 6 }).withMessage('New password must be at least 6 characters')
 ], async (req, res) => {
@@ -277,7 +271,7 @@ router.put('/change-password', [
     }
 
     const { currentPassword, newPassword } = req.body;
-    const patientUser = await PatientUser.findById(req.user?.id || req.body.userId);
+    const patientUser = await PatientUser.findById(req.patient.id);
 
     if (!patientUser) {
       return res.status(404).json({

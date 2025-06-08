@@ -11,7 +11,9 @@ const appointmentSchema = new mongoose.Schema({
   patient: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Patient',
-    required: true
+    required: function() {
+      return this.bookingSource !== 'patient_portal';
+    }
   },
   
   // Doctor/Service information

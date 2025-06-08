@@ -33,10 +33,15 @@ const patientUserSchema = new mongoose.Schema({
     type: Date,
     required: true
   },
+  gender: {
+    type: String,
+    enum: ['Male', 'Female', 'Other'],
+    required: true
+  },
   address: {
     street: String,
     city: String,
-    state: String,
+    province: String,
     zipCode: String
   },
   emergencyContact: {

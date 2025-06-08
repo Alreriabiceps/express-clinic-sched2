@@ -1,5 +1,6 @@
 import express from 'express';
 import Patient from '../models/Patient.js';
+import Appointment from '../models/Appointment.js';
 import { authenticateToken, requireRole } from '../middleware/auth.js';
 const router = express.Router();
 
@@ -60,7 +61,7 @@ router.get('/search', authenticateToken, async (req, res) => {
 
     const skip = (page - 1) * limit;
     const patients = await Patient.find(searchQuery)
-      .select('personalInfo patientType patientNumber createdAt')
+      .select('personalInfo patientType patientNumber patientId status createdAt')
       .sort({ createdAt: -1 })
       .limit(parseInt(limit))
       .skip(skip);
@@ -85,34 +86,44 @@ router.get('/search', authenticateToken, async (req, res) => {
 // Get all patients with pagination
 router.get('/', authenticateToken, async (req, res) => {
   try {
-    const { limit = 10, page = 1, type } = req.query;
+    const { limit = 10, page = 1, type, status } = req.query;
     
     let query = {};
     if (type) {
       query.patientType = type;
     }
+    if (status) {
+      query.status = status;
+    }
 
     const skip = (page - 1) * limit;
     const patients = await Patient.find(query)
-      .select('personalInfo patientType patientNumber createdAt')
-      .sort({ createdAt: -1 })
+      .select('patientId patientType pediatricRecord.nameOfChildren pediatricRecord.nameOfMother obGyneRecord.patientName contactInfo status createdAt updatedAt')
+      .sort({ updatedAt: -1, createdAt: -1 })
       .limit(parseInt(limit))
       .skip(skip);
 
     const total = await Patient.countDocuments(query);
 
     res.json({
-      patients,
-      pagination: {
-        total,
-        page: parseInt(page),
-        limit: parseInt(limit),
-        pages: Math.ceil(total / limit)
+      success: true,
+      data: {
+        patients,
+        pagination: {
+          total,
+          page: parseInt(page),
+          limit: parseInt(limit),
+          pages: Math.ceil(total / limit)
+        }
       }
     });
   } catch (error) {
     console.error('Error fetching patients:', error);
-    res.status(500).json({ message: 'Error fetching patients', error: error.message });
+    res.status(500).json({ 
+      success: false, 
+      message: 'Error fetching patients', 
+      error: error.message 
+    });
   }
 });
 
@@ -223,7 +234,12 @@ router.get('/stats/overview', authenticateToken, async (req, res) => {
   try {
     const totalPatients = await Patient.countDocuments();
     const pediatricPatients = await Patient.countDocuments({ patientType: 'pediatric' });
-    const obgynePatients = await Patient.countDocuments({ patientType: 'obgyne' });
+    const obgynePatients = await Patient.countDocuments({ patientType: 'ob-gyne' });
+    
+    // Patient status counts
+    const newPatients = await Patient.countDocuments({ status: 'New' });
+    const activePatients = await Patient.countDocuments({ status: 'Active' });
+    const inactivePatients = await Patient.countDocuments({ status: 'Inactive' });
     
     // Recent patients (last 30 days)
     const thirtyDaysAgo = new Date();
@@ -236,11 +252,104 @@ router.get('/stats/overview', authenticateToken, async (req, res) => {
       totalPatients,
       pediatricPatients,
       obgynePatients,
-      recentPatients
+      recentPatients,
+      statusCounts: {
+        new: newPatients,
+        active: activePatients,
+        inactive: inactivePatients
+      }
     });
   } catch (error) {
     console.error('Error fetching patient statistics:', error);
     res.status(500).json({ message: 'Error fetching statistics', error: error.message });
+  }
+});
+
+// Get patients by status
+router.get('/status/:status', authenticateToken, async (req, res) => {
+  try {
+    const { status } = req.params;
+    const { limit = 10, page = 1, type } = req.query;
+    
+    // Validate status
+    if (!['New', 'Active', 'Inactive'].includes(status)) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Invalid status. Must be New, Active, or Inactive' 
+      });
+    }
+    
+    let query = { status };
+    if (type) {
+      query.patientType = type;
+    }
+
+    const skip = (page - 1) * limit;
+    const patients = await Patient.find(query)
+      .select('patientId patientType pediatricRecord.nameOfChildren pediatricRecord.nameOfMother obGyneRecord.patientName contactInfo status createdAt updatedAt')
+      .sort({ updatedAt: -1, createdAt: -1 })
+      .limit(parseInt(limit))
+      .skip(skip);
+
+    const total = await Patient.countDocuments(query);
+
+    // Get related appointments for each patient
+    const patientsWithAppointments = [];
+    for (const patient of patients) {
+      const patientObj = patient.toObject();
+      
+      // Get the latest appointment for this patient
+      const latestAppointment = await Patient.aggregate([
+        { $match: { _id: patient._id } },
+        {
+          $lookup: {
+            from: 'appointments',
+            localField: '_id',
+            foreignField: 'patient',
+            as: 'appointments'
+          }
+        },
+        {
+          $project: {
+            latestAppointment: {
+              $arrayElemAt: [
+                {
+                  $sortArray: {
+                    input: '$appointments',
+                    sortBy: { createdAt: -1 }
+                  }
+                },
+                0
+              ]
+            }
+          }
+        }
+      ]);
+
+      patientObj.latestAppointment = latestAppointment[0]?.latestAppointment || null;
+      patientsWithAppointments.push(patientObj);
+    }
+
+    res.json({
+      success: true,
+      data: {
+        patients: patientsWithAppointments,
+        pagination: {
+          total,
+          page: parseInt(page),
+          limit: parseInt(limit),
+          pages: Math.ceil(total / limit)
+        },
+        statusFilter: status
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching patients by status:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Error fetching patients by status', 
+      error: error.message 
+    });
   }
 });
 
