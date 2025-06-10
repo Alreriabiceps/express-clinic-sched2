@@ -20,6 +20,8 @@ router.post('/register', [
   body('phoneNumber').trim().notEmpty().withMessage('Phone number is required'),
   body('dateOfBirth').isISO8601().withMessage('Valid date of birth is required'),
   body('gender').isIn(['Male', 'Female', 'Other']).withMessage('Valid gender is required'),
+  body('consent').isBoolean().withMessage('Consent must be provided'),
+  body('consent').equals(true).withMessage('You must agree to the terms and conditions')
 ], async (req, res) => {
   try {
     // Check for validation errors
@@ -32,7 +34,7 @@ router.post('/register', [
       });
     }
 
-    const { email, password, firstName, lastName, phoneNumber, dateOfBirth, gender, address, emergencyContact } = req.body;
+    const { email, password, firstName, lastName, phoneNumber, dateOfBirth, gender, address, emergencyContact, consent } = req.body;
 
     // Check if patient already exists
     const existingPatient = await PatientUser.findOne({ email });
@@ -53,7 +55,9 @@ router.post('/register', [
       dateOfBirth,
       gender,
       address,
-      emergencyContact
+      emergencyContact,
+      consent,
+      consentDate: consent ? new Date() : null
     });
 
     await patientUser.save();
@@ -78,7 +82,9 @@ router.post('/register', [
           age: patientUser.age,
           address: patientUser.address,
           emergencyContact: patientUser.emergencyContact,
-          isVerified: patientUser.isVerified
+          isVerified: patientUser.isVerified,
+          consent: patientUser.consent,
+          consentDate: patientUser.consentDate
         },
         token,
         refreshToken

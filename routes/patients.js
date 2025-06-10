@@ -4,38 +4,75 @@ import Appointment from '../models/Appointment.js';
 import { authenticateToken, requireRole } from '../middleware/auth.js';
 const router = express.Router();
 
-// Create new patient
+// Create new patient (Unified Endpoint)
 router.post('/', authenticateToken, requireRole(['admin', 'staff']), async (req, res) => {
   try {
     const patientData = req.body;
+    console.log('Received patient registration data:', JSON.stringify(patientData, null, 2));
     
-    // Check if patient already exists
-    const existingPatient = await Patient.findOne({
-      $or: [
-        { 'personalInfo.firstName': patientData.personalInfo.firstName, 'personalInfo.lastName': patientData.personalInfo.lastName },
-        { 'personalInfo.contactNumber': patientData.personalInfo.contactNumber }
-      ]
-    });
-
-    if (existingPatient) {
-      return res.status(400).json({ message: 'Patient with this name or contact number already exists' });
+    // Basic validation
+    if (!patientData.patientType || !patientData.record) {
+      return res.status(400).json({ message: 'Patient type and record are required.' });
     }
 
-    const patient = new Patient(patientData);
+    // Check for existing patient based on name in the record
+    const patientName = patientData.patientType === 'ob-gyne' 
+        ? patientData.record.patientName 
+        : patientData.record.nameOfChildren;
+
+    if (patientName) {
+        const existingPatient = await Patient.findOne({
+          $or: [
+            { 'obGyneRecord.patientName': patientName },
+            { 'pediatricRecord.nameOfChildren': patientName }
+          ]
+        });
+
+        if (existingPatient) {
+          return res.status(400).json({ message: `Patient with name "${patientName}" already exists.` });
+        }
+    }
+
+    // Structure the data for the model
+    const newPatientData = {
+      patientType: patientData.patientType,
+      status: 'New', // Default status
+    };
+
+    // Extract emergency contact and add to contactInfo if it exists
+    if (patientData.record.emergencyContact) {
+      newPatientData.contactInfo = {
+        emergencyContact: {
+          name: patientData.record.emergencyContact.name,
+          phone: patientData.record.emergencyContact.contactNumber,
+        }
+      };
+      // Remove it from record to avoid schema conflict
+      delete patientData.record.emergencyContact;
+    }
+
+    if (patientData.patientType === 'ob-gyne') {
+      newPatientData.obGyneRecord = patientData.record;
+    } else if (patientData.patientType === 'pediatric') {
+      newPatientData.pediatricRecord = patientData.record;
+    } else {
+      return res.status(400).json({ message: 'Invalid patient type specified.' });
+    }
+
+    const patient = new Patient(newPatientData);
     await patient.save();
     
     res.status(201).json({
       message: 'Patient created successfully',
-      patient: {
-        _id: patient._id,
-        personalInfo: patient.personalInfo,
-        patientType: patient.patientType,
-        patientNumber: patient.patientNumber
-      }
+      patient
     });
   } catch (error) {
     console.error('Error creating patient:', error);
-    res.status(400).json({ message: 'Error creating patient', error: error.message });
+    res.status(400).json({ 
+      message: 'Error creating patient', 
+      error: error.message,
+      validationErrors: error.errors || null
+    });
   }
 });
 
@@ -144,12 +181,25 @@ router.get('/:id', authenticateToken, async (req, res) => {
 });
 
 // Update patient
-router.put('/:id', authenticateToken, requireRole(['admin', 'staff']), async (req, res) => {
+router.put('/:id', authenticateToken, requireRole(['admin', 'staff', 'doctor']), async (req, res) => {
   try {
+    console.log('Received update data:', JSON.stringify(req.body, null, 2));
+
+    const updateData = {};
+    if (req.body.obGyneRecord) {
+      // Use dot notation to ensure deep merge of the nested object
+      for (const key in req.body.obGyneRecord) {
+        updateData[`obGyneRecord.${key}`] = req.body.obGyneRecord[key];
+      }
+    } else {
+        // Handle other update types if necessary
+        Object.assign(updateData, req.body);
+    }
+
     const patient = await Patient.findByIdAndUpdate(
       req.params.id,
-      req.body,
-      { new: true, runValidators: true }
+      { $set: updateData },
+      { new: true, runValidators: true, context: 'query' }
     );
     
     if (!patient) {
@@ -162,7 +212,12 @@ router.put('/:id', authenticateToken, requireRole(['admin', 'staff']), async (re
     });
   } catch (error) {
     console.error('Error updating patient:', error);
-    res.status(400).json({ message: 'Error updating patient', error: error.message });
+    console.error('Validation error details:', error.errors);
+    res.status(400).json({ 
+      message: 'Error updating patient', 
+      error: error.message,
+      details: error.errors 
+    });
   }
 });
 

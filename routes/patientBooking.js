@@ -430,9 +430,11 @@ router.post('/book-appointment', authenticatePatient, [
         // Manually generate patientId before creating the record
         const prefix = doctorInfo.doctorType === 'pediatric' ? 'PED' : 'OBG';
         const count = await Patient.countDocuments({ patientType: doctorInfo.doctorType });
-        const generatedPatientId = `${prefix}${String(count + 1).padStart(6, '0')}`;
+        const number = String(count + 1).padStart(6, '0');
+        const generatedPatientId = `${prefix}${number}`;
         
         patientData.patientId = generatedPatientId;
+        patientData.patientNumber = generatedPatientId; // Explicitly set patientNumber
         console.log('Creating patient with generated patientId:', generatedPatientId);
         
         patientRecord = new Patient(patientData);

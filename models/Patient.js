@@ -33,57 +33,122 @@ const pediatricRecordSchema = new mongoose.Schema({
 
 // Schema for OB-GYNE patient records
 const obGyneRecordSchema = new mongoose.Schema({
-  // Patient Information
+  // Patient Information from form
   patientName: { type: String, required: true, trim: true },
   address: { type: String, trim: true },
   contactNumber: { type: String, trim: true },
   birthDate: { type: Date },
-  civilStatus: { type: String, enum: ['Single', 'Married', 'Divorced', 'Widowed'] },
+  age: { type: Number },
+  civilStatus: { type: String, enum: ['Single', 'Married', 'Divorced', 'Widowed'], trim: true },
   occupation: { type: String, trim: true },
+  religion: { type: String, trim: true },
+  referredBy: { type: String, trim: true },
   
-  // Past Medical History
+  // Past Medical History from form
   pastMedicalHistory: {
     hypertension: { type: Boolean, default: false },
     diabetes: { type: Boolean, default: false },
+    bronchialAsthma: { type: Boolean, default: false },
+    lastAttack: { type: String, trim: true },
     heartDisease: { type: Boolean, default: false },
-    asthma: { type: Boolean, default: false },
+    thyroidDisease: { type: Boolean, default: false },
+    previousSurgery: { type: String, trim: true },
     allergies: { type: String, trim: true },
-    medications: { type: String, trim: true },
-    surgeries: { type: String, trim: true },
-    other: { type: String, trim: true }
+  },
+
+  // Family History from form
+  familyHistory: {
+    smoker: { type: Boolean, default: false },
+    alcohol: { type: Boolean, default: false },
+    drugs: { type: Boolean, default: false },
+  },
+
+  // Baseline Diagnostics from form
+  baselineDiagnostics: {
+    cbc: { hgb: String, hct: String, plt: String, wbc: String },
+    urinalysis: String,
+    bloodType: String,
+    fbs: String,
+    hbsag: String,
+    vdrlRpr: String,
+    hiv: String,
+    ogtt75g: { fbs: String, firstHour: String, secondHour: String },
+    other: String
   },
   
-  // Obstetric and Gynecologic History
+  // Obstetric and Gynecologic History from form
   obstetricHistory: [{
     year: { type: Number },
     place: { type: String, trim: true },
-    typeOfDelivery: { type: String, enum: ['NSD', 'CS', 'Assisted'] },
-    birthWeight: { type: String, trim: true },
+    typeOfDelivery: { type: String, trim: true },
+    bw: { type: String, trim: true }, // Birth Weight
     complications: { type: String, trim: true }
   }],
   
   gynecologicHistory: {
+    obScore: String,
+    gravidity: Number,
+    parity: Number,
     lmp: { type: Date }, // Last Menstrual Period
-    menstrualCycle: { type: String, trim: true },
-    contraceptiveUse: { type: String, trim: true },
-    gravida: { type: Number, default: 0 },
-    para: { type: Number, default: 0 },
-    abortions: { type: Number, default: 0 }
+    pmp: { type: Date }, // Past Menstrual Period
+    aog: String, // Age of Gestation
+    earlyUltrasound: Date,
+    aogByEutz: String,
+    eddByLmp: Date,
+    eddByEutz: Date,
+    menarche: Number, // Age
+    intervalIsRegular: Boolean,
+    intervalDays: Number,
+    durationDays: Number,
+    amountPads: String,
+    dysmenorrhea: Boolean,
+    coitarche: Number, // Age
+    sexualPartners: Number,
+    contraceptiveUse: String,
+    lastPapSmear: {
+      date: Date,
+      result: String
+    }
+  },
+
+  immunizations: {
+    tt1: Date,
+    tt2: Date,
+    tt3: Date,
+    tdap: Date,
+    flu: Date,
+    hpv: Date,
+    pcv: Date,
+    covid19: {
+      brand: String,
+      primary: Date,
+      booster: Date
+    }
   },
   
-  // Consultation Records
+  // Consultation Records from form
   consultations: [{
     date: { type: Date, default: Date.now },
+    // Vitals
     bp: { type: String, trim: true }, // Blood Pressure
-    hr: { type: String, trim: true }, // Heart Rate
+    pr: { type: String, trim: true }, // Pulse Rate
+    rr: { type: String, trim: true }, // Respiratory Rate
+    temp: { type: String, trim: true }, // Temperature
+    weight: { type: String, trim: true },
+    bmi: { type: String, trim: true },
+    aog: { type: String, trim: true }, // Age of Gestation (per visit)
+    fh: { type: String, trim: true }, // Fundal Height
+    fht: { type: String, trim: true }, // Fetal Heart Tone
+    internalExam: { type: String, trim: true },
+
+    // Subjective / Objective
     historyPhysicalExam: { type: String, trim: true },
+    
+    // Assessment / Plan
     assessmentPlan: { type: String, trim: true },
-    medications: [{
-      name: { type: String, trim: true },
-      dosage: { type: String, trim: true },
-      frequency: { type: String, trim: true },
-      duration: { type: String, trim: true }
-    }]
+    
+    // Next Appointment
+    nextAppointment: { type: Date }
   }]
 });
 
@@ -92,6 +157,11 @@ const patientSchema = new mongoose.Schema({
     type: String,
     unique: true,
     required: true
+  },
+  patientNumber: {
+    type: String,
+    unique: true,
+    sparse: true  // This allows null values but ensures uniqueness for non-null values
   },
   patientType: {
     type: String,
@@ -142,20 +212,16 @@ const patientSchema = new mongoose.Schema({
   timestamps: true
 });
 
-// Auto-generate patient ID
-patientSchema.pre('save', async function(next) {
+// Auto-generate patient ID and patientNumber
+patientSchema.pre('validate', async function() {
   if (!this.patientId) {
-    try {
-      const prefix = this.patientType === 'pediatric' ? 'PED' : 'OBG';
-      const count = await this.constructor.countDocuments({ patientType: this.patientType });
-      this.patientId = `${prefix}${String(count + 1).padStart(6, '0')}`;
-      console.log(`Generated patientId: ${this.patientId} for patientType: ${this.patientType}`);
-    } catch (error) {
-      console.error('Error generating patientId:', error);
-      return next(error);
-    }
+    const prefix = this.patientType === 'pediatric' ? 'PED' : 'OBG';
+    const count = await this.constructor.countDocuments({ patientType: this.patientType });
+    const number = String(count + 1).padStart(6, '0');
+    this.patientId = `${prefix}${number}`;
+    this.patientNumber = `${prefix}${number}`; // Set patientNumber to match patientId
+    console.log(`Generated patientId: ${this.patientId} for patientType: ${this.patientType}`);
   }
-  next();
 });
 
 // Index for search
