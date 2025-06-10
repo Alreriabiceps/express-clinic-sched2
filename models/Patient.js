@@ -3,24 +3,86 @@ import mongoose from 'mongoose';
 // Schema for Pediatric patient records
 const pediatricRecordSchema = new mongoose.Schema({
   // Patient Information
+  patientName: { type: String, trim: true, required: true },
   nameOfMother: { type: String, trim: true },
   nameOfFather: { type: String, trim: true },
-  nameOfChildren: { type: String, trim: true },
   address: { type: String, trim: true },
   contactNumber: { type: String, trim: true },
   birthDate: { type: Date },
+  age: { type: String, trim: true },
+  sex: { type: String, enum: ['Male', 'Female'], trim: true },
   birthWeight: { type: String, trim: true },
   birthLength: { type: String, trim: true },
   
   // Immunization History
-  immunizations: [{
-    vaccine: {
-      type: String,
-      enum: ['BCG', 'HEPATITIS_B', 'DPT_1', 'DPT_2', 'DPT_3', 'POLIO_1', 'POLIO_2', 'POLIO_3', 'MMR', 'VARICELLA', 'PNEUMOCOCCAL', 'ROTAVIRUS', 'INFLUENZA', 'OTHER']
+  immunizations: {
+    dpt: { 
+      d1: {date: Date, remarks: String}, 
+      d2: {date: Date, remarks: String}, 
+      d3: {date: Date, remarks: String},
+      b1: {date: Date, remarks: String},
+      b2: {date: Date, remarks: String},
     },
-    date: { type: Date },
-    remarks: { type: String, trim: true }
-  }],
+    opvIpv: {
+      d1: {date: Date, remarks: String}, 
+      d2: {date: Date, remarks: String}, 
+      d3: {date: Date, remarks: String},
+      b1: {date: Date, remarks: String},
+      b2: {date: Date, remarks: String},
+    },
+    hInfluenzaHib: {
+      d1: {date: Date, remarks: String}, 
+      d2: {date: Date, remarks: String}, 
+      d3: {date: Date, remarks: String}, 
+      d4: {date: Date, remarks: String},
+    },
+    measlesMmr: {
+      d1: {date: Date, remarks: String}, 
+      d2: {date: Date, remarks: String}, 
+    },
+    pneumococcalPcv: {
+      d1: {date: Date, remarks: String}, 
+      d2: {date: Date, remarks: String}, 
+      d3: {date: Date, remarks: String}, 
+      d4: {date: Date, remarks: String},
+    },
+    pneumococcalPpv: { date: Date, remarks: String },
+    rotavirus: {
+      d1: {date: Date, remarks: String}, 
+      d2: {date: Date, remarks: String}, 
+      d3: {date: Date, remarks: String},
+    },
+    varicella: { date: Date, remarks: String },
+    hepatitisA: {
+      d1: {date: Date, remarks: String}, 
+      d2: {date: Date, remarks: String}, 
+    },
+    tdaPTdp: {
+      d1: {date: Date, remarks: String}, 
+      d2: {date: Date, remarks: String}, 
+    },
+    meningococcal: {
+      d1: {date: Date, remarks: String}, 
+      d2: {date: Date, remarks: String},
+    },
+    influenza: {
+      d1: {date: Date, remarks: String}, 
+      d2: {date: Date, remarks: String}, 
+      d3: {date: Date, remarks: String}, 
+      d4: {date: Date, remarks: String},
+      d5: {date: Date, remarks: String},
+    },
+    japaneseEncephalitis: {
+      d1: {date: Date, remarks: String}, 
+      d2: {date: Date, remarks: String}, 
+    },
+    hpv: {
+      d1: {date: Date, remarks: String}, 
+      d2: {date: Date, remarks: String}, 
+      d3: {date: Date, remarks: String}, 
+    },
+    mantouxTest: { date: Date, remarks: String },
+  },
   
   // Consultation Records
   consultations: [{
@@ -227,7 +289,7 @@ patientSchema.pre('validate', async function() {
 // Index for search
 patientSchema.index({ 
   patientId: 1,
-  'pediatricRecord.nameOfChildren': 'text',
+  'pediatricRecord.patientName': 'text',
   'pediatricRecord.nameOfMother': 'text',
   'obGyneRecord.patientName': 'text'
 });
