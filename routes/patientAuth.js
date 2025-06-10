@@ -21,7 +21,7 @@ router.post('/register', [
   body('dateOfBirth').isISO8601().withMessage('Valid date of birth is required'),
   body('gender').isIn(['Male', 'Female', 'Other']).withMessage('Valid gender is required'),
   body('consent').isBoolean().withMessage('Consent must be provided'),
-  body('consent').equals(true).withMessage('You must agree to the terms and conditions')
+  body('consent').custom(val => val === true).withMessage('You must agree to the terms and conditions')
 ], async (req, res) => {
   try {
     // Check for validation errors

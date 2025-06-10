@@ -360,104 +360,45 @@ router.post('/book-appointment', authenticatePatient, [
     }
 
     // Find or create patient record linked to PatientUser
-    let patientRecord = await Patient.findOne({ 
-      'contactInfo.email': patientUser.email 
+    let patientRecord = await Patient.findOne({
+      'contactInfo.email': patientUser.email
     });
 
     if (!patientRecord) {
-      // Create new patient record with status 'New'
       const patientData = {
         patientType: doctorInfo.doctorType,
         contactInfo: {
           email: patientUser.email,
           emergencyContact: patientUser.emergencyContact || {}
         },
-        status: 'New' // Set initial status as 'New' when booking appointment
+        status: 'New'
       };
 
       if (doctorInfo.doctorType === 'pediatric') {
         patientData.pediatricRecord = {
-          nameOfMother: patientType === 'self' ? '' : patientUser.fullName, // If booking for dependent, parent is the mother
-          nameOfFather: '',
-          nameOfChildren: patientType === 'dependent' ? dependentInfo?.name || '' : patientUser.fullName,
-          address: `${patientUser.address?.street || ''}, ${patientUser.address?.city || ''}, ${patientUser.address?.province || ''}`.trim() || 'Not provided',
-          contactNumber: patientUser.phoneNumber,
-          birthDate: patientType === 'dependent' && dependentInfo?.age 
-            ? new Date(new Date().getFullYear() - dependentInfo.age, 0, 1) 
-            : patientUser.dateOfBirth,
-          immunizations: [],
-          consultations: []
+          nameOfChildren: patientName,
+          contactNumber: contactNumber,
         };
-      } else {
-        // For OB-GYNE patients, ensure patientName is set (required field)
-        const patientName = patientType === 'dependent' ? dependentInfo?.name : patientUser.fullName;
-        if (!patientName) {
-          throw new Error('Patient name is required for OB-GYNE records');
-        }
-        
+      } else { // ob-gyne
         patientData.obGyneRecord = {
-            patientName: patientName,
-            address: `${patientUser.address?.street || ''}, ${patientUser.address?.city || ''}, ${patientUser.address?.province || ''}`.trim() || 'Not provided',
-            contactNumber: patientUser.phoneNumber,
-            birthDate: patientType === 'dependent' && dependentInfo?.age 
-              ? new Date(new Date().getFullYear() - dependentInfo.age, 0, 1) 
-              : patientUser.dateOfBirth,
-            civilStatus: 'Single', // Default value, can be updated later
-            occupation: '',
-            pastMedicalHistory: {
-              hypertension: false,
-              diabetes: false,
-              heartDisease: false,
-              asthma: false,
-              allergies: '',
-              medications: '',
-              surgeries: '',
-              other: ''
-            },
-            obstetricHistory: [],
-            gynecologicHistory: {
-              menstrualCycle: '',
-              contraceptiveUse: '',
-              gravida: 0,
-              para: 0,
-              abortions: 0
-            },
-            consultations: []
-          };
+          patientName: patientName,
+          contactNumber: contactNumber,
+        };
       }
-
+      
       try {
-        // Manually generate patientId before creating the record
-        const prefix = doctorInfo.doctorType === 'pediatric' ? 'PED' : 'OBG';
-        const count = await Patient.countDocuments({ patientType: doctorInfo.doctorType });
-        const number = String(count + 1).padStart(6, '0');
-        const generatedPatientId = `${prefix}${number}`;
-        
-        patientData.patientId = generatedPatientId;
-        patientData.patientNumber = generatedPatientId; // Explicitly set patientNumber
-        console.log('Creating patient with generated patientId:', generatedPatientId);
-        
         patientRecord = new Patient(patientData);
         await patientRecord.save();
-        console.log('Patient saved successfully with patientId:', patientRecord.patientId);
-      } catch (patientError) {
-        console.error('Error creating patient record:', patientError);
-        throw new Error(`Failed to create patient record: ${patientError.message}`);
-      }
-
-      // Link patient record to PatientUser
-      patientUser.patientRecord = patientRecord._id;
-      await patientUser.save();
-    } else {
-      // Update existing patient record status to 'New' if it was 'Inactive'
-      if (patientRecord.status === 'Inactive') {
-        patientRecord.status = 'New';
-        await patientRecord.save();
+        patientUser.patientRecord = patientRecord._id;
+        await patientUser.save();
+      } catch (err) {
+        console.error('Book appointment error:', err);
+        return res.status(500).json({ success: false, message: `Failed to create patient record: ${err.message}` });
       }
     }
 
-    // Create appointment with all required fields
-    const appointment = new Appointment({
+    // Create a new appointment
+    const newAppointment = new Appointment({
       appointmentId,
       patient: patientRecord._id, // Link to patient record
       patientUserId: patientUser._id,
@@ -479,7 +420,7 @@ router.post('/book-appointment', authenticatePatient, [
       bookingSource: 'patient_portal'
     });
 
-    await appointment.save();
+    await newAppointment.save();
 
     // Return appointment details
     res.status(201).json({
@@ -487,16 +428,16 @@ router.post('/book-appointment', authenticatePatient, [
       message: 'Appointment booked successfully',
       data: {
         appointment: {
-          appointmentId: appointment.appointmentId,
-          patientName: appointment.patientName,
-          doctorName: appointment.doctorName,
-          appointmentDate: appointment.appointmentDate,
-          appointmentTime: appointment.appointmentTime,
-          serviceType: appointment.serviceType,
-          reasonForVisit: appointment.reasonForVisit,
-          status: appointment.status,
-          patientType: appointment.patientType,
-          dependentInfo: appointment.dependentInfo
+          appointmentId: newAppointment.appointmentId,
+          patientName: newAppointment.patientName,
+          doctorName: newAppointment.doctorName,
+          appointmentDate: newAppointment.appointmentDate,
+          appointmentTime: newAppointment.appointmentTime,
+          serviceType: newAppointment.serviceType,
+          reasonForVisit: newAppointment.reasonForVisit,
+          status: newAppointment.status,
+          patientType: newAppointment.patientType,
+          dependentInfo: newAppointment.dependentInfo
         }
       }
     });

@@ -3,7 +3,7 @@ import mongoose from 'mongoose';
 // Schema for Pediatric patient records
 const pediatricRecordSchema = new mongoose.Schema({
   // Patient Information
-  patientName: { type: String, trim: true, required: true },
+  nameOfChildren: { type: String, trim: true, required: true },
   nameOfMother: { type: String, trim: true },
   nameOfFather: { type: String, trim: true },
   address: { type: String, trim: true },
