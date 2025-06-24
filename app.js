@@ -25,7 +25,10 @@ app.use(helmet());
 
 const allowedOrigins = [
   process.env.FRONTEND_URL,
-  'http://localhost:5173'
+  'http://localhost:5173',
+  'https://vmclinic.vercel.app', // Add your Vercel URL
+  'https://vm-clinic.vercel.app', // Alternative Vercel URL format
+  'https://vite-clinic.vercel.app' // Another possible URL
 ];
 
 app.use(cors({
