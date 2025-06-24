@@ -26,18 +26,31 @@ app.use(helmet());
 const allowedOrigins = [
   process.env.FRONTEND_URL,
   'http://localhost:5173',
-  'https://vmclinic.vercel.app', // Add your Vercel URL
-  'https://vm-clinic.vercel.app', // Alternative Vercel URL format
-  'https://vite-clinic.vercel.app' // Another possible URL
+  'https://vmclinic.vercel.app',
+  'https://vm-clinic.vercel.app', 
+  'https://vite-clinic.vercel.app',
+  // Add more Vercel patterns
+  'https://clinic-frontend.vercel.app',
+  'https://clinic-app.vercel.app'
 ];
+
+// Function to check if origin is a Vercel deployment
+const isVercelOrigin = (origin) => {
+  return origin && origin.includes('.vercel.app');
+};
 
 app.use(cors({
   origin: function(origin, callback) {
+    console.log('CORS Debug - Origin:', origin);
+    console.log('CORS Debug - Allowed Origins:', allowedOrigins);
+    
     // allow requests with no origin (like mobile apps, curl, etc.)
     if (!origin) return callback(null, true);
-    if (allowedOrigins.includes(origin)) {
+    
+    if (allowedOrigins.includes(origin) || isVercelOrigin(origin)) {
       return callback(null, true);
     } else {
+      console.log('CORS Rejected Origin:', origin);
       return callback(new Error('Not allowed by CORS'));
     }
   },
