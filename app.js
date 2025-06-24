@@ -26,6 +26,8 @@ app.use(helmet());
 const allowedOrigins = [
   process.env.FRONTEND_URL,
   'http://localhost:5173',
+  'http://localhost:5174', // Add port 5174
+  'http://localhost:3000', // Common React port
   'https://vmclinic.vercel.app',
   'https://vm-clinic.vercel.app', 
   'https://vite-clinic.vercel.app',
@@ -39,6 +41,11 @@ const isVercelOrigin = (origin) => {
   return origin && origin.includes('.vercel.app');
 };
 
+// Function to check if origin is localhost (any port)
+const isLocalhostOrigin = (origin) => {
+  return origin && origin.startsWith('http://localhost:');
+};
+
 app.use(cors({
   origin: function(origin, callback) {
     console.log('CORS Debug - Origin:', origin);
@@ -47,7 +54,7 @@ app.use(cors({
     // allow requests with no origin (like mobile apps, curl, etc.)
     if (!origin) return callback(null, true);
     
-    if (allowedOrigins.includes(origin) || isVercelOrigin(origin)) {
+    if (allowedOrigins.includes(origin) || isVercelOrigin(origin) || isLocalhostOrigin(origin)) {
       return callback(null, true);
     } else {
       console.log('CORS Rejected Origin:', origin);
