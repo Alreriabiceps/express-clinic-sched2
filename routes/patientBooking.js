@@ -12,8 +12,6 @@ router.get('/available-dates', async (req, res) => {
   try {
     const { doctorId } = req.query;
     
-    console.log('Available dates request for doctorId:', doctorId);
-    
     if (!doctorId) {
       return res.status(400).json({
         success: false,
@@ -44,8 +42,6 @@ router.get('/available-dates', async (req, res) => {
     };
 
     const doctor = doctorSchedules[doctorId];
-    console.log('Found doctor:', doctor ? doctor.name : 'NOT FOUND');
-    console.log('Doctor schedule:', doctor ? doctor.schedule : 'NO SCHEDULE');
     
     if (!doctor) {
       return res.status(400).json({
@@ -76,14 +72,13 @@ router.get('/available-dates', async (req, res) => {
         const day = String(checkDate.getDate()).padStart(2, '0');
         const dateStr = `${year}-${month}-${day}`;
         availableDates.push(dateStr);
-        console.log(`Adding available date: ${dateStr} (${dayOfWeek})`);
       }
       
       // Move to next day
       checkDate.setDate(checkDate.getDate() + 1);
     }
 
-    console.log(`Total available dates for ${doctor.name}: ${availableDates.length}`);
+
 
     res.json({
       success: true,
@@ -111,7 +106,7 @@ router.get('/available-slots', async (req, res) => {
   try {
     const { date, doctorId } = req.query;
     
-    console.log('Available slots request:', { date, doctorId });
+
     
     if (!date || !doctorId) {
       return res.status(400).json({
@@ -155,11 +150,8 @@ router.get('/available-slots', async (req, res) => {
     const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
     const dayOfWeek = dayNames[selectedDate.getDay()];
 
-    console.log('Date info:', { selectedDate, dayOfWeek, schedule: doctor.schedule });
-
     // Check if doctor works on this day
     if (!doctor.schedule[dayOfWeek]) {
-      console.log(`Doctor ${doctor.name} not available on ${dayOfWeek}`);
       return res.json({
         success: true,
         data: {
@@ -171,9 +163,7 @@ router.get('/available-slots', async (req, res) => {
 
     // Generate time slots (30-minute intervals)
     const { start, end } = doctor.schedule[dayOfWeek];
-    console.log('Generating slots for:', { start, end, dayOfWeek });
     const timeSlots = generateTimeSlots(start, end, 30);
-    console.log('Generated time slots:', timeSlots);
 
     // Get existing appointments for this date and doctor
     const existingAppointments = await Appointment.find({
@@ -185,13 +175,9 @@ router.get('/available-slots', async (req, res) => {
       status: { $nin: ['cancelled'] }
     });
 
-    console.log('Existing appointments:', existingAppointments.length);
-
     // Filter out booked slots
     const bookedTimes = existingAppointments.map(apt => apt.appointmentTime);
     const availableSlots = timeSlots.filter(slot => !bookedTimes.includes(slot));
-
-    console.log('Available slots:', availableSlots);
 
     res.json({
       success: true,
@@ -397,6 +383,29 @@ router.post('/book-appointment', authenticatePatient, [
       }
     }
 
+    // Check if patient already has a pending/scheduled appointment
+    const pendingAppointment = await Appointment.findOne({
+      patientUserId: patientUser._id,
+      status: { $in: ['scheduled', 'confirmed', 'cancellation_pending', 'reschedule_pending'] },
+      appointmentDate: { $gte: new Date() } // Only future appointments
+    });
+
+    if (pendingAppointment) {
+      return res.status(400).json({
+        success: false,
+        message: 'You already have a pending appointment. Please complete or cancel your current appointment before booking a new one.',
+        data: {
+          existingAppointment: {
+            appointmentId: pendingAppointment.appointmentId,
+            doctorName: pendingAppointment.doctorName,
+            appointmentDate: pendingAppointment.appointmentDate,
+            appointmentTime: pendingAppointment.appointmentTime,
+            status: pendingAppointment.status
+          }
+        }
+      });
+    }
+
     // Create a new appointment
     const newAppointment = new Appointment({
       appointmentId,
@@ -449,7 +458,7 @@ router.post('/book-appointment', authenticatePatient, [
     res.status(500).json({
       success: false,
       message: 'Error booking appointment',
-      error: error.message // Always return error message for now to debug
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
 });
@@ -475,10 +484,11 @@ router.get('/my-appointments', authenticatePatient, async (req, res) => {
   }
 });
 
-// Cancel appointment
-router.put('/cancel-appointment/:appointmentId', authenticatePatient, async (req, res) => {
+// Request appointment cancellation (requires admin approval)
+router.post('/request-cancellation/:appointmentId', authenticatePatient, async (req, res) => {
   try {
     const { appointmentId } = req.params;
+    const { reason } = req.body;
     
     const appointment = await Appointment.findOne({
       appointmentId,
@@ -499,6 +509,21 @@ router.put('/cancel-appointment/:appointmentId', authenticatePatient, async (req
       });
     }
 
+    if (appointment.status === 'completed') {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot cancel a completed appointment'
+      });
+    }
+
+    // Check if there's already a pending cancellation request
+    if (appointment.cancellationRequest && appointment.cancellationRequest.status === 'pending') {
+      return res.status(400).json({
+        success: false,
+        message: 'Cancellation request is already pending admin approval'
+      });
+    }
+
     // Check if appointment is in the future (allow cancellation up to 2 hours before)
     const appointmentDateTime = new Date(`${appointment.appointmentDate.toISOString().split('T')[0]}T${convertTo24Hour(appointment.appointmentTime)}`);
     const now = new Date();
@@ -512,23 +537,134 @@ router.put('/cancel-appointment/:appointmentId', authenticatePatient, async (req
       });
     }
 
-    appointment.status = 'cancelled';
+    // Add cancellation request to appointment
+    appointment.cancellationRequest = {
+      status: 'pending',
+      reason: reason || 'Patient requested cancellation',
+      requestedAt: new Date(),
+      requestedBy: req.patient.id
+    };
+    appointment.status = 'cancellation_pending';
     appointment.updatedAt = new Date();
     await appointment.save();
 
     res.json({
       success: true,
-      message: 'Appointment cancelled successfully',
+      message: 'Cancellation request submitted successfully. Please wait for admin approval.',
       data: { appointment }
     });
 
   } catch (error) {
-    console.error('Cancel appointment error:', error);
+    console.error('Request cancellation error:', error);
     res.status(500).json({
       success: false,
-      message: 'Error cancelling appointment'
+      message: 'Error requesting appointment cancellation'
     });
   }
+});
+
+// Request appointment reschedule (requires admin approval)
+router.post('/request-reschedule/:appointmentId', authenticatePatient, async (req, res) => {
+  try {
+    const { appointmentId } = req.params;
+    const { reason, preferredDate, preferredTime } = req.body;
+    
+    console.log('Reschedule request debug:');
+    console.log('appointmentId:', appointmentId);
+    console.log('req.patient.id:', req.patient.id);
+    console.log('req.body:', req.body);
+    
+    const appointment = await Appointment.findOne({
+      appointmentId,
+      patientUserId: req.patient.id
+    });
+    
+    console.log('Found appointment:', appointment ? 'YES' : 'NO');
+
+    if (!appointment) {
+      console.log('No appointment found with query:', { appointmentId, patientUserId: req.patient.id });
+      
+      // Let's also check if appointment exists without patient filter
+      const anyAppointment = await Appointment.findOne({ appointmentId });
+      console.log('Appointment exists (without patient filter):', anyAppointment ? 'YES' : 'NO');
+      if (anyAppointment) {
+        console.log('Appointment patientUserId:', anyAppointment.patientUserId);
+        console.log('Request patient id:', req.patient.id);
+        console.log('Types - DB:', typeof anyAppointment.patientUserId, 'Request:', typeof req.patient.id);
+      }
+      
+      return res.status(404).json({
+        success: false,
+        message: 'Appointment not found'
+      });
+    }
+
+    if (appointment.status === 'cancelled' || appointment.status === 'completed') {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot reschedule a cancelled or completed appointment'
+      });
+    }
+
+    // Check if there's already a pending reschedule request
+    console.log('Appointment status:', appointment.status);
+    console.log('Reschedule request:', appointment.rescheduleRequest);
+    
+    if (appointment.rescheduleRequest && appointment.rescheduleRequest.status === 'pending') {
+      console.log('Blocking reschedule - already pending');
+      return res.status(400).json({
+        success: false,
+        message: 'Reschedule request is already pending admin approval'
+      });
+    }
+
+    // Check if appointment is in the future (allow rescheduling up to 2 hours before)
+    const appointmentDateTime = new Date(`${appointment.appointmentDate.toISOString().split('T')[0]}T${convertTo24Hour(appointment.appointmentTime)}`);
+    const now = new Date();
+    const timeDifference = appointmentDateTime.getTime() - now.getTime();
+    const hoursDifference = timeDifference / (1000 * 60 * 60);
+
+    if (hoursDifference < 2) {
+      return res.status(400).json({
+        success: false,
+        message: 'Appointments can only be rescheduled at least 2 hours in advance'
+      });
+    }
+
+    // Add reschedule request to appointment
+    appointment.rescheduleRequest = {
+      status: 'pending',
+      reason: reason || 'Patient requested reschedule',
+      requestedAt: new Date(),
+      requestedBy: req.patient.id,
+      preferredDate: preferredDate ? new Date(preferredDate) : null,
+      preferredTime: preferredTime || null
+    };
+    appointment.status = 'reschedule_pending';
+    appointment.updatedAt = new Date();
+    await appointment.save();
+
+    res.json({
+      success: true,
+      message: 'Reschedule request submitted successfully. Please wait for admin approval.',
+      data: { appointment }
+    });
+
+  } catch (error) {
+    console.error('Request reschedule error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error requesting appointment reschedule'
+    });
+  }
+});
+
+// Legacy cancel appointment endpoint (kept for backward compatibility, but now requires admin approval)
+router.put('/cancel-appointment/:appointmentId', authenticatePatient, async (req, res) => {
+  // Redirect to the new request cancellation endpoint
+  req.url = `/request-cancellation/${req.params.appointmentId}`;
+  req.method = 'POST';
+  return router.handle(req, res);
 });
 
 // Helper function to generate time slots

@@ -8,7 +8,7 @@ const router = express.Router();
 router.post('/', authenticateToken, requireRole(['admin', 'staff']), async (req, res) => {
   try {
     const patientData = req.body;
-    console.log('Received patient registration data:', JSON.stringify(patientData, null, 2));
+
     
     // Basic validation
     if (!patientData.patientType || !patientData.record) {
@@ -85,10 +85,13 @@ router.get('/search', authenticateToken, async (req, res) => {
     
     if (query) {
       searchQuery.$or = [
-        { 'personalInfo.firstName': { $regex: query, $options: 'i' } },
-        { 'personalInfo.lastName': { $regex: query, $options: 'i' } },
+        { 'pediatricRecord.nameOfChildren': { $regex: query, $options: 'i' } },
+        { 'pediatricRecord.nameOfMother': { $regex: query, $options: 'i' } },
+        { 'obGyneRecord.patientName': { $regex: query, $options: 'i' } },
         { patientNumber: { $regex: query, $options: 'i' } },
-        { 'personalInfo.contactNumber': { $regex: query, $options: 'i' } }
+        { patientId: { $regex: query, $options: 'i' } },
+        { 'contactInfo.email': { $regex: query, $options: 'i' } },
+        { 'contactInfo.emergencyContact.phone': { $regex: query, $options: 'i' } }
       ];
     }
     
@@ -98,7 +101,7 @@ router.get('/search', authenticateToken, async (req, res) => {
 
     const skip = (page - 1) * limit;
     const patients = await Patient.find(searchQuery)
-      .select('personalInfo patientType patientNumber patientId status createdAt')
+      .select('patientId patientType patientNumber pediatricRecord.nameOfChildren pediatricRecord.nameOfMother pediatricRecord.address pediatricRecord.birthDate pediatricRecord.age obGyneRecord.patientName obGyneRecord.address obGyneRecord.birthDate obGyneRecord.age contactInfo status createdAt')
       .sort({ createdAt: -1 })
       .limit(parseInt(limit))
       .skip(skip);
@@ -135,7 +138,7 @@ router.get('/', authenticateToken, async (req, res) => {
 
     const skip = (page - 1) * limit;
     const patients = await Patient.find(query)
-      .select('patientId patientType pediatricRecord.nameOfChildren pediatricRecord.nameOfMother obGyneRecord.patientName contactInfo status createdAt updatedAt')
+      .select('patientId patientType patientNumber pediatricRecord.nameOfChildren pediatricRecord.nameOfMother pediatricRecord.address pediatricRecord.birthDate pediatricRecord.age obGyneRecord.patientName obGyneRecord.address obGyneRecord.birthDate obGyneRecord.age contactInfo status createdAt updatedAt')
       .sort({ updatedAt: -1, createdAt: -1 })
       .limit(parseInt(limit))
       .skip(skip);
@@ -183,7 +186,7 @@ router.get('/:id', authenticateToken, async (req, res) => {
 // Update patient
 router.put('/:id', authenticateToken, requireRole(['admin', 'staff', 'doctor']), async (req, res) => {
   try {
-    console.log('Received update data:', JSON.stringify(req.body, null, 2));
+
 
     const updateData = {};
     if (req.body.obGyneRecord) {
@@ -341,7 +344,7 @@ router.get('/status/:status', authenticateToken, async (req, res) => {
 
     const skip = (page - 1) * limit;
     const patients = await Patient.find(query)
-      .select('patientId patientType pediatricRecord.nameOfChildren pediatricRecord.nameOfMother obGyneRecord.patientName contactInfo status createdAt updatedAt')
+      .select('patientId patientType patientNumber pediatricRecord.nameOfChildren pediatricRecord.nameOfMother pediatricRecord.address pediatricRecord.birthDate pediatricRecord.age obGyneRecord.patientName obGyneRecord.address obGyneRecord.birthDate obGyneRecord.age contactInfo status createdAt updatedAt')
       .sort({ updatedAt: -1, createdAt: -1 })
       .limit(parseInt(limit))
       .skip(skip);

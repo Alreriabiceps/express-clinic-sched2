@@ -401,56 +401,6 @@ router.get('/daily', [authenticateToken, requireStaff], async (req, res) => {
   }
 });
 
-// Test endpoint to check all appointments without authentication (for debugging)
-router.get('/debug/all', async (req, res) => {
-  try {
-    const appointments = await Appointment.find({})
-      .populate('patient', 'patientId patientType pediatricRecord.nameOfChildren obGyneRecord.patientName')
-      .populate('patientUserId', 'fullName email phoneNumber')
-      .populate('bookedBy', 'firstName lastName')
-      .sort({ appointmentDate: 1, appointmentTime: 1 });
 
-    console.log('DEBUG: Total appointments in database:', appointments.length);
-    appointments.forEach((apt, index) => {
-      console.log(`DEBUG Appointment ${index + 1}:`, {
-        id: apt._id,
-        patientName: apt.patientName,
-        doctorName: apt.doctorName,
-        date: apt.appointmentDate,
-        time: apt.appointmentTime,
-        bookingSource: apt.bookingSource,
-        status: apt.status,
-        patientUserId: apt.patientUserId?._id,
-        patient: apt.patient?._id
-      });
-    });
-
-    res.json({
-      success: true,
-      data: {
-        total: appointments.length,
-        appointments: appointments.map(apt => ({
-          id: apt._id,
-          patientName: apt.patientName,
-          doctorName: apt.doctorName,
-          appointmentDate: apt.appointmentDate,
-          appointmentTime: apt.appointmentTime,
-          bookingSource: apt.bookingSource,
-          status: apt.status,
-          hasPatientUserId: !!apt.patientUserId,
-          hasPatient: !!apt.patient
-        }))
-      }
-    });
-
-  } catch (error) {
-    console.error('Debug appointments error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Debug error',
-      error: error.message
-    });
-  }
-});
 
 export default router; 

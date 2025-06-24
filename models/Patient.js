@@ -276,13 +276,61 @@ const patientSchema = new mongoose.Schema({
 
 // Auto-generate patient ID and patientNumber
 patientSchema.pre('validate', async function() {
-  if (!this.patientId) {
-    const prefix = this.patientType === 'pediatric' ? 'PED' : 'OBG';
-    const count = await this.constructor.countDocuments({ patientType: this.patientType });
-    const number = String(count + 1).padStart(6, '0');
-    this.patientId = `${prefix}${number}`;
-    this.patientNumber = `${prefix}${number}`; // Set patientNumber to match patientId
-    console.log(`Generated patientId: ${this.patientId} for patientType: ${this.patientType}`);
+  if (!this.patientId && !this._generatingId) {
+    this._generatingId = true; // Prevent multiple calls
+    console.log(`Generating patient ID for ${this.patientType} patient...`);
+    
+    try {
+      const prefix = this.patientType === 'pediatric' ? 'PED' : 'OBG';
+      
+      // Find the highest existing number for this patient type to start from
+      const lastPatient = await this.constructor.findOne(
+        { 
+          patientType: this.patientType,
+          patientId: { $regex: `^${prefix}` }
+        },
+        { patientId: 1 }
+      ).sort({ patientId: -1 });
+      
+      let nextNumber = 1;
+      if (lastPatient && lastPatient.patientId) {
+        // Extract the number from the last patient ID (e.g., "OBG000003" -> 3)
+        const lastNumber = parseInt(lastPatient.patientId.substring(3));
+        nextNumber = lastNumber + 1;
+      }
+      
+      let attempts = 0;
+      const maxAttempts = 100;
+      
+      while (attempts < maxAttempts) {
+        const candidateId = `${prefix}${String(nextNumber).padStart(6, '0')}`;
+        console.log(`Trying candidate ID: ${candidateId} (attempt ${attempts + 1})`);
+        
+        // Check if this ID already exists
+        const existing = await this.constructor.findOne({ patientId: candidateId });
+        if (!existing) {
+          console.log(`ID ${candidateId} is available, assigning to patient`);
+          this.patientId = candidateId;
+          this.patientNumber = candidateId;
+          break;
+        } else {
+          console.log(`ID ${candidateId} already exists, trying next number`);
+        }
+        
+        nextNumber++;
+        attempts++;
+      }
+      
+      if (!this.patientId) {
+        const errorMsg = `Failed to generate unique patient ID after ${attempts} attempts`;
+        console.error(errorMsg);
+        throw new Error(errorMsg);
+      }
+      
+      console.log(`Successfully assigned patient ID: ${this.patientId}`);
+    } finally {
+      this._generatingId = false;
+    }
   }
 });
 

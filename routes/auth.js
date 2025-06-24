@@ -312,4 +312,58 @@ router.post('/logout', authenticateToken, async (req, res) => {
   }
 });
 
+// Update user profile
+router.put('/profile', authenticateToken, [
+  body('firstName').optional().trim().notEmpty().withMessage('First name is required'),
+  body('lastName').optional().trim().notEmpty().withMessage('Last name is required'),
+  body('username').optional().trim().notEmpty().withMessage('Username is required')
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation failed',
+        errors: errors.array()
+      });
+    }
+
+    const updates = {};
+    if (req.body.firstName) updates.firstName = req.body.firstName;
+    if (req.body.lastName) updates.lastName = req.body.lastName;
+    if (req.body.username) updates.username = req.body.username;
+
+    // Prevent updating role, specialty, password, or email here
+    delete updates.role;
+    delete updates.specialty;
+    delete updates.password;
+    delete updates.email;
+
+    const user = await User.findByIdAndUpdate(
+      req.user._id,
+      updates,
+      { new: true, runValidators: true }
+    ).select('-password');
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Profile updated successfully',
+      data: { user }
+    });
+  } catch (error) {
+    console.error('Profile update error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error updating profile'
+    });
+  }
+});
+
 export default router; 

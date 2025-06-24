@@ -26,7 +26,11 @@ export const authenticatePatient = async (req, res, next) => {
       });
     }
 
-    req.patient = patient;
+    // Ensure id field is available (convert _id to id)
+    req.patient = {
+      ...patient.toObject(),
+      id: patient._id.toString()
+    };
     next();
   } catch (error) {
     console.error('Patient auth middleware error:', error);

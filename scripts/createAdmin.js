@@ -6,25 +6,24 @@ dotenv.config({ path: './.env' });
 
 const createAdmin = async () => {
   try {
-    const mongoURI = process.env.MONGODB_URI;
-    if (!mongoURI) {
-      throw new Error('MONGODB_URI is not defined in your .env file');
-    }
-
+    const mongoURI = process.env.MONGODB_URI || 'mongodb://localhost:27017/clinic-db';
+    
     await mongoose.connect(mongoURI);
     console.log('Connected to MongoDB');
 
-    const adminEmail = process.env.ADMIN_EMAIL;
-    const adminPassword = process.env.ADMIN_PASSWORD;
+    // Hardcoded admin credentials
+    const adminEmail = 'admin@clinic.com';
+    const adminPassword = 'admin123';
+    const adminUsername = 'admin';
 
-    if (!adminEmail || !adminPassword) {
-      throw new Error('ADMIN_EMAIL and ADMIN_PASSWORD must be set in .env file');
-    }
-
-    const existingAdmin = await User.findOne({ email: adminEmail });
+    const existingAdmin = await User.findOne({ 
+      $or: [{ email: adminEmail }, { username: adminUsername }]
+    });
 
     if (existingAdmin) {
       console.log('Admin user already exists.');
+      console.log('Username:', existingAdmin.username);
+      console.log('Email:', existingAdmin.email);
       mongoose.connection.close();
       return;
     }
@@ -32,7 +31,7 @@ const createAdmin = async () => {
     const adminUser = new User({
       email: adminEmail,
       password: adminPassword,
-      username: 'admin',
+      username: adminUsername,
       firstName: 'Admin',
       lastName: 'User',
       role: 'admin',
@@ -40,10 +39,13 @@ const createAdmin = async () => {
     });
 
     await adminUser.save();
-    console.log('Admin user created successfully!');
+    console.log('✅ Admin user created successfully!');
+    console.log('Username: admin');
+    console.log('Password: admin123');
+    console.log('Email: admin@clinic.com');
     
   } catch (error) {
-    console.error('Error creating admin user:', error.message);
+    console.error('❌ Error creating admin user:', error.message);
   } finally {
     mongoose.connection.close();
     console.log('MongoDB connection closed.');

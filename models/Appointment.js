@@ -79,7 +79,7 @@ const appointmentSchema = new mongoose.Schema({
   // Appointment status
   status: {
     type: String,
-    enum: ['scheduled', 'confirmed', 'completed', 'cancelled', 'no-show', 'rescheduled'],
+    enum: ['scheduled', 'confirmed', 'completed', 'cancelled', 'no-show', 'rescheduled', 'cancellation_pending', 'reschedule_pending'],
     default: 'scheduled'
   },
   
@@ -195,6 +195,66 @@ const appointmentSchema = new mongoose.Schema({
     type: String,
     trim: true,
     maxlength: 500
+  },
+  
+  // Cancellation request (requires admin approval)
+  cancellationRequest: {
+    status: {
+      type: String,
+      enum: ['pending', 'approved', 'rejected'],
+      default: 'pending'
+    },
+    reason: {
+      type: String,
+      trim: true,
+      maxlength: 500
+    },
+    requestedAt: Date,
+    requestedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'PatientUser'
+    },
+    reviewedAt: Date,
+    reviewedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
+    },
+    adminNotes: {
+      type: String,
+      trim: true,
+      maxlength: 500
+    }
+  },
+  
+  // Reschedule request (requires admin approval)
+  rescheduleRequest: {
+    status: {
+      type: String,
+      enum: ['pending', 'approved', 'rejected'],
+      default: 'pending'
+    },
+    reason: {
+      type: String,
+      trim: true,
+      maxlength: 500
+    },
+    requestedAt: Date,
+    requestedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'PatientUser'
+    },
+    preferredDate: Date,
+    preferredTime: String,
+    reviewedAt: Date,
+    reviewedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
+    },
+    adminNotes: {
+      type: String,
+      trim: true,
+      maxlength: 500
+    }
   },
   
   rescheduledFrom: {
