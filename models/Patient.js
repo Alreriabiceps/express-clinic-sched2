@@ -111,11 +111,12 @@ const obGyneRecordSchema = new mongoose.Schema({
     hypertension: { type: Boolean, default: false },
     diabetes: { type: Boolean, default: false },
     bronchialAsthma: { type: Boolean, default: false },
-    lastAttack: { type: String, trim: true },
+    lastAttack: { type: Date }, // Changed to Date for date picker
     heartDisease: { type: Boolean, default: false },
     thyroidDisease: { type: Boolean, default: false },
-    previousSurgery: { type: String, trim: true },
+    previousSurgery: { type: Date }, // Changed to Date for date picker
     allergies: { type: String, trim: true },
+    others: { type: String, trim: true }, // For additional medical history comments
   },
 
   // Family History from form
