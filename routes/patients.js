@@ -427,4 +427,28 @@ router.delete('/:id', authenticateToken, requireRole(['admin']), async (req, res
   }
 });
 
+// --- Add this script at the end of the file for admin use ---
+import mongoose from 'mongoose';
+
+// Utility script to find appointments with missing patients and create patient records
+export async function fixOrphanedAppointments() {
+  const orphanedAppointments = await Appointment.find({ patient: { $exists: true, $ne: null } }).populate('patient');
+  for (const appt of orphanedAppointments) {
+    if (!appt.patient) {
+      // Try to create a new patient record based on appointment info
+      const newPatient = new Patient({
+        patientType: appt.doctorType === 'ob-gyne' ? 'ob-gyne' : 'pediatric',
+        status: 'Active',
+        obGyneRecord: appt.doctorType === 'ob-gyne' ? { patientName: appt.patientName, contactNumber: appt.contactNumber } : undefined,
+        pediatricRecord: appt.doctorType === 'pediatric' ? { nameOfChildren: appt.patientName, contactNumber: appt.contactNumber } : undefined
+      });
+      await newPatient.save();
+      appt.patient = newPatient._id;
+      await appt.save();
+      console.log(`Created patient for orphaned appointment: ${appt._id}`);
+    }
+  }
+  console.log('Orphaned appointment fix complete.');
+}
+
 export default router; 

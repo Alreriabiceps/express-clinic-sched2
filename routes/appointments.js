@@ -37,6 +37,34 @@ router.get('/', [authenticateToken, requireStaff], async (req, res) => {
       filter.doctorName = req.query.doctorName;
     }
 
+    // Add this block to filter by patientId
+    if (req.query.patientId) {
+      console.log('🔍 Filtering appointments by patientId:', req.query.patientId);
+      const patient = await Patient.findOne({ patientId: req.query.patientId });
+      if (patient) {
+        console.log('✅ Found patient:', patient.patientId, 'ObjectId:', patient._id);
+        filter.patient = patient._id;
+      } else {
+        console.log('❌ Patient not found for patientId:', req.query.patientId);
+        // If patient not found, return empty result
+        return res.json({
+          success: true,
+          data: {
+            appointments: [],
+            pagination: {
+              current: page,
+              pages: 0,
+              total: 0,
+              hasNext: false,
+              hasPrev: false
+            }
+          }
+        });
+      }
+    }
+
+    console.log('🔍 Final filter object:', JSON.stringify(filter, null, 2));
+
     const appointments = await Appointment.find(filter)
       .populate('patient', 'patientId patientType pediatricRecord.nameOfChildren obGyneRecord.patientName')
       .populate('patientUserId', 'fullName email phoneNumber')
@@ -401,6 +429,37 @@ router.get('/daily', [authenticateToken, requireStaff], async (req, res) => {
   }
 });
 
+// Update appointment diagnosis
+router.patch('/:id/diagnosis', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { diagnosis } = req.body;
 
+    const appointment = await Appointment.findByIdAndUpdate(
+      id,
+      { diagnosis },
+      { new: true }
+    );
+
+    if (!appointment) {
+      return res.status(404).json({
+        success: false,
+        message: 'Appointment not found'
+      });
+    }
+
+    res.json({
+      success: true,
+      data: appointment,
+      message: 'Diagnosis updated successfully'
+    });
+  } catch (error) {
+    console.error('Error updating diagnosis:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to update diagnosis'
+    });
+  }
+});
 
 export default router; 

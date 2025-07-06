@@ -190,6 +190,14 @@ const appointmentSchema = new mongoose.Schema({
     maxlength: 500
   },
   
+  // Diagnosis field
+  diagnosis: {
+    type: String,
+    trim: true,
+    maxlength: 1000,
+    default: ''
+  },
+  
   // Cancellation/Rescheduling
   cancellationReason: {
     type: String,

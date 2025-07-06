@@ -124,6 +124,7 @@ const obGyneRecordSchema = new mongoose.Schema({
     smoker: { type: Boolean, default: false },
     alcohol: { type: Boolean, default: false },
     drugs: { type: Boolean, default: false },
+    others: { type: String, trim: true }, // For custom entries
   },
 
   // Baseline Diagnostics from form
