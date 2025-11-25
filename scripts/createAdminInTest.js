@@ -10,14 +10,14 @@ const __dirname = path.dirname(__filename);
 dotenv.config({ path: path.resolve(__dirname, '../.env') });
 
 const createAdmin = async () => {
-  console.log('Starting createAdmin script...');
+  console.log('Creating admin in TEST database...');
   try {
-    // Hardcode for reliability
-    const mongoURI = 'mongodb://localhost:27017/vm-clinic';
+    // Connect to TEST database (where backend is actually connected)
+    const mongoURI = 'mongodb://localhost:27017/test';
     console.log('Connecting to:', mongoURI);
     
     await mongoose.connect(mongoURI);
-    console.log('Connected to MongoDB');
+    console.log('Connected to MongoDB (test database)');
 
     // Delete ALL existing admin accounts
     const existingAdmins = await User.find({ role: 'admin' });
@@ -29,15 +29,11 @@ const createAdmin = async () => {
       console.log('No existing admin accounts found.');
     }
 
-    // Hardcoded admin credentials
-    const adminEmail = 'admin@clinic.com';
-    const adminPassword = 'admin123';
-    const adminUsername = 'admin';
-
+    // Create new admin
     const adminUser = new User({
-      email: adminEmail,
-      password: adminPassword,
-      username: adminUsername,
+      email: 'admin@clinic.com',
+      password: 'admin123',
+      username: 'admin',
       firstName: 'Admin',
       lastName: 'User',
       role: 'admin',
@@ -45,13 +41,18 @@ const createAdmin = async () => {
     });
 
     await adminUser.save();
-    console.log('✅ Admin user created successfully!');
+    console.log('✅ Admin user created successfully in TEST database!');
     console.log('Username: admin');
     console.log('Password: admin123');
     console.log('Email: admin@clinic.com');
     
+    // Verify password works
+    const isValid = await adminUser.comparePassword('admin123');
+    console.log('Password verification:', isValid ? '✅ Valid' : '❌ Invalid');
+    
   } catch (error) {
     console.error('❌ Error creating admin user:', error.message);
+    console.error(error);
   } finally {
     mongoose.connection.close();
     console.log('MongoDB connection closed.');
@@ -59,3 +60,4 @@ const createAdmin = async () => {
 };
 
 createAdmin();
+

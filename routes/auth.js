@@ -1,5 +1,7 @@
 import express from 'express';
 import { body, validationResult } from 'express-validator';
+import mongoose from 'mongoose';
+import bcrypt from 'bcryptjs';
 import User from '../models/User.js';
 import { 
   generateToken, 
@@ -29,6 +31,11 @@ router.post('/login', [
 
     const { username, password } = req.body;
 
+    console.log('=== LOGIN DEBUG ===');
+    console.log('Username:', username);
+    console.log('Password length:', password?.length);
+    console.log('Database:', mongoose.connection.name);
+
     // Find user by username or email
     const user = await User.findOne({
       $or: [
@@ -39,20 +46,47 @@ router.post('/login', [
     });
 
     if (!user) {
+      console.log('❌ User not found');
+      // Check all users with that username/email
+      const allUsers = await User.find({
+        $or: [
+          { username: username.toLowerCase() },
+          { email: username.toLowerCase() }
+        ]
+      });
+      console.log('Users found (including inactive):', allUsers.length);
       return res.status(401).json({
         success: false,
         message: 'Invalid credentials'
       });
     }
 
-    // Check password
-    const isValidPassword = await user.comparePassword(password);
+    console.log('✅ User found:', {
+      id: user._id.toString(),
+      username: user.username,
+      email: user.email,
+      role: user.role,
+      isActive: user.isActive,
+      passwordHash: user.password.substring(0, 20) + '...'
+    });
+
+    // Check password - try both methods
+    let isValidPassword = await user.comparePassword(password);
+    
+    // Fallback to direct bcrypt if comparePassword fails
     if (!isValidPassword) {
+      isValidPassword = await bcrypt.compare(password, user.password);
+    }
+    
+    if (!isValidPassword) {
+      console.log('❌ Login failed: Invalid password for user:', user.username);
       return res.status(401).json({
         success: false,
         message: 'Invalid credentials'
       });
     }
+    
+    console.log('✅ Login successful for:', user.username);
 
     // Update last login
     user.lastLogin = new Date();

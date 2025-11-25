@@ -155,6 +155,14 @@ router.post(
     body("appointmentTime")
       .matches(/^(0?[1-9]|1[0-2]):[0-5][0-9] (AM|PM)$/i)
       .withMessage("Valid appointment time is required"),
+    body("endTime")
+      .optional()
+      .matches(/^(0?[1-9]|1[0-2]):[0-5][0-9] (AM|PM)$/i)
+      .withMessage("Valid end time is required"),
+    body("estimatedWaitTime")
+      .optional()
+      .isInt({ min: 0 })
+      .withMessage("Waiting time must be a positive number"),
     body("serviceType").notEmpty().withMessage("Service type is required"),
     // Phone will be defaulted from the patient record if missing
     body("contactInfo.primaryPhone").optional(),
@@ -180,6 +188,8 @@ router.post(
         doctorName,
         appointmentDate,
         appointmentTime,
+        endTime,
+        estimatedWaitTime,
         serviceType,
         contactInfo,
         reasonForVisit,
@@ -264,6 +274,8 @@ router.post(
         doctorName,
         appointmentDate: new Date(appointmentDate),
         appointmentTime,
+        endTime: endTime || undefined,
+        estimatedWaitTime: estimatedWaitTime ? parseInt(estimatedWaitTime) : undefined,
         serviceType: normalizedServiceType,
         contactInfo:
           contactInfo && contactInfo.primaryPhone

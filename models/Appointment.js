@@ -48,6 +48,18 @@ const appointmentSchema = new mongoose.Schema(
       },
     },
 
+    endTime: {
+      type: String,
+      validate: {
+        validator: function (time) {
+          if (!time) return true; // Optional field
+          // Validate time format (HH:MM AM/PM)
+          return /^(0?[1-9]|1[0-2]):[0-5][0-9] (AM|PM)$/i.test(time);
+        },
+        message: "End time must be in format HH:MM AM/PM",
+      },
+    },
+
     // Service details
     serviceType: {
       type: String,
