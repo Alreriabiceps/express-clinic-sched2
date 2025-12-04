@@ -340,6 +340,186 @@ router.post(
   }
 );
 
+// Update consultation record
+router.put(
+  "/:id/consultations/:consultationId",
+  authenticateToken,
+  requireRole(["admin", "doctor"]),
+  async (req, res) => {
+    try {
+      const patient = await Patient.findById(req.params.id);
+
+      if (!patient) {
+        return res.status(404).json({ message: "Patient not found" });
+      }
+
+      const consultations = patient.patientType === "pediatric"
+        ? patient.pediatricRecord.consultations
+        : patient.obGyneRecord.consultations;
+
+      const consultationIndex = consultations.findIndex(
+        (c) => c._id.toString() === req.params.consultationId
+      );
+
+      if (consultationIndex === -1) {
+        return res.status(404).json({ message: "Consultation not found" });
+      }
+
+      // Update consultation data
+      Object.assign(consultations[consultationIndex], req.body);
+      consultations[consultationIndex].updatedAt = new Date();
+
+      await patient.save();
+
+      res.json({
+        message: "Consultation record updated successfully",
+        patient,
+      });
+    } catch (error) {
+      console.error("Error updating consultation:", error);
+      res.status(400).json({
+        message: "Error updating consultation record",
+        error: error.message,
+      });
+    }
+  }
+);
+
+// Delete consultation record
+router.delete(
+  "/:id/consultations/:consultationId",
+  authenticateToken,
+  requireRole(["admin", "doctor"]),
+  async (req, res) => {
+    try {
+      const patient = await Patient.findById(req.params.id);
+
+      if (!patient) {
+        return res.status(404).json({ message: "Patient not found" });
+      }
+
+      const consultations = patient.patientType === "pediatric"
+        ? patient.pediatricRecord.consultations
+        : patient.obGyneRecord.consultations;
+
+      const consultationIndex = consultations.findIndex(
+        (c) => c._id.toString() === req.params.consultationId
+      );
+
+      if (consultationIndex === -1) {
+        return res.status(404).json({ message: "Consultation not found" });
+      }
+
+      consultations.splice(consultationIndex, 1);
+      await patient.save();
+
+      res.json({
+        message: "Consultation record deleted successfully",
+        patient,
+      });
+    } catch (error) {
+      console.error("Error deleting consultation:", error);
+      res.status(400).json({
+        message: "Error deleting consultation record",
+        error: error.message,
+      });
+    }
+  }
+);
+
+// Update immunization record
+router.put(
+  "/:id/immunizations/:immunizationId",
+  authenticateToken,
+  requireRole(["admin", "doctor"]),
+  async (req, res) => {
+    try {
+      const patient = await Patient.findById(req.params.id);
+
+      if (!patient) {
+        return res.status(404).json({ message: "Patient not found" });
+      }
+
+      if (patient.patientType !== "pediatric") {
+        return res.status(400).json({
+          message: "Immunization records are only for pediatric patients",
+        });
+      }
+
+      const immunizations = patient.pediatricRecord.immunizations;
+      const immunizationIndex = immunizations.findIndex(
+        (i) => i._id.toString() === req.params.immunizationId
+      );
+
+      if (immunizationIndex === -1) {
+        return res.status(404).json({ message: "Immunization not found" });
+      }
+
+      // Update immunization data
+      Object.assign(immunizations[immunizationIndex], req.body);
+      immunizations[immunizationIndex].updatedAt = new Date();
+
+      await patient.save();
+
+      res.json({
+        message: "Immunization record updated successfully",
+        patient,
+      });
+    } catch (error) {
+      console.error("Error updating immunization:", error);
+      res.status(400).json({
+        message: "Error updating immunization record",
+        error: error.message,
+      });
+    }
+  }
+);
+
+// Delete immunization record
+router.delete(
+  "/:id/immunizations/:immunizationId",
+  authenticateToken,
+  requireRole(["admin", "doctor"]),
+  async (req, res) => {
+    try {
+      const patient = await Patient.findById(req.params.id);
+
+      if (!patient) {
+        return res.status(404).json({ message: "Patient not found" });
+      }
+
+      if (patient.patientType !== "pediatric") {
+        return res.status(400).json({
+          message: "Immunization records are only for pediatric patients",
+        });
+      }
+
+      const immunizations = patient.pediatricRecord.immunizations;
+      const immunizationIndex = immunizations.findIndex(
+        (i) => i._id.toString() === req.params.immunizationId
+      );
+
+      if (immunizationIndex === -1) {
+        return res.status(404).json({ message: "Immunization not found" });
+      }
+
+      immunizations.splice(immunizationIndex, 1);
+      await patient.save();
+
+      res.json({
+        message: "Immunization record deleted successfully",
+        patient,
+      });
+    } catch (error) {
+      console.error("Error deleting immunization:", error);
+      res.status(400).json({
+        message: "Error deleting immunization record",
+        error: error.message,
+      });
+    }
+  }
+);
+
 // Get patient statistics
 router.get("/stats/overview", authenticateToken, async (req, res) => {
   try {

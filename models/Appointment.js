@@ -329,6 +329,12 @@ appointmentSchema.pre("validate", async function (next) {
 
 // Validate appointment time against doctor schedules
 appointmentSchema.pre("save", function (next) {
+  // Skip validation if this is a reschedule (has rescheduledFrom) or if status is reschedule_pending
+  // The route handler should validate before saving
+  if (this.rescheduledFrom || this.status === "reschedule_pending" || this.status === "rescheduled") {
+    return next();
+  }
+
   const appointmentDate = new Date(this.appointmentDate);
   const dayOfWeek = appointmentDate.getDay(); // 0 = Sunday, 1 = Monday, etc.
 

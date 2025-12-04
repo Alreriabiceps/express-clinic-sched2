@@ -346,7 +346,7 @@ router.patch(
         });
       }
 
-      const { status, cancellationReason, staffNotes } = req.body;
+      const { status, cancellationReason, reason, staffNotes } = req.body;
 
       const appointment = await Appointment.findById(req.params.id);
       if (!appointment) {
@@ -356,9 +356,8 @@ router.patch(
         });
       }
 
-      appointment.status = status;
-
       if (status === "confirmed") {
+        appointment.status = status;
         appointment.confirmedBy = req.user._id;
 
         // Update patient status to 'Active' when appointment is confirmed
@@ -369,10 +368,28 @@ router.patch(
             await patient.save();
           }
         }
+      } else if (status === "cancelled") {
+        // If cancelling, set to pending for patient approval (only for patient portal bookings)
+        if (appointment.bookingSource === "patient_portal" && appointment.patientUserId) {
+          appointment.status = "cancellation_pending";
+          appointment.cancellationRequest = {
+            status: "pending",
+            reason: cancellationReason || reason || "Cancelled by staff",
+            requestedAt: new Date(),
+          };
+        } else {
+          // For staff bookings, cancel directly
+          appointment.status = "cancelled";
+        }
+        if (cancellationReason || reason) {
+          appointment.cancellationReason = cancellationReason || reason;
+        }
+      } else {
+        appointment.status = status;
       }
 
-      if (status === "cancelled" && cancellationReason) {
-        appointment.cancellationReason = cancellationReason;
+      if (staffNotes) {
+        appointment.staffNotes = staffNotes;
       }
 
       if (staffNotes) {
@@ -399,6 +416,133 @@ router.patch(
       res.status(500).json({
         success: false,
         message: "Server error updating appointment",
+      });
+    }
+  }
+);
+
+// Approve patient cancellation request
+router.patch(
+  "/:id/approve-cancellation",
+  [authenticateToken, requireStaff],
+  async (req, res) => {
+    try {
+      const appointment = await Appointment.findById(req.params.id);
+      if (!appointment) {
+        return res.status(404).json({
+          success: false,
+          message: "Appointment not found",
+        });
+      }
+
+      if (appointment.status !== "cancellation_pending") {
+        return res.status(400).json({
+          success: false,
+          message: "Appointment is not pending cancellation approval",
+        });
+      }
+
+      // Check if this is a patient-initiated cancellation request
+      if (!appointment.cancellationRequest || !appointment.cancellationRequest.requestedBy) {
+        return res.status(400).json({
+          success: false,
+          message: "This is not a patient-initiated cancellation request",
+        });
+      }
+
+      // Approve the cancellation
+      appointment.status = "cancelled";
+      appointment.cancellationRequest.status = "approved";
+      appointment.cancellationRequest.reviewedAt = new Date();
+      appointment.cancellationRequest.reviewedBy = req.user._id;
+      if (req.body.adminNotes) {
+        appointment.cancellationRequest.adminNotes = req.body.adminNotes;
+      }
+
+      await appointment.save();
+
+      const updatedAppointment = await Appointment.findById(appointment._id)
+        .populate(
+          "patient",
+          "patientId patientType pediatricRecord.nameOfChildren obGyneRecord.patientName"
+        )
+        .populate("bookedBy", "firstName lastName")
+        .populate("confirmedBy", "firstName lastName");
+
+      res.json({
+        success: true,
+        message: "Cancellation request approved successfully",
+        data: { appointment: updatedAppointment },
+      });
+    } catch (error) {
+      console.error("Approve cancellation error:", error);
+      res.status(500).json({
+        success: false,
+        message: "Server error approving cancellation",
+      });
+    }
+  }
+);
+
+// Reject patient cancellation request
+router.patch(
+  "/:id/reject-cancellation",
+  [authenticateToken, requireStaff],
+  async (req, res) => {
+    try {
+      const appointment = await Appointment.findById(req.params.id);
+      if (!appointment) {
+        return res.status(404).json({
+          success: false,
+          message: "Appointment not found",
+        });
+      }
+
+      if (appointment.status !== "cancellation_pending") {
+        return res.status(400).json({
+          success: false,
+          message: "Appointment is not pending cancellation approval",
+        });
+      }
+
+      // Check if this is a patient-initiated cancellation request
+      if (!appointment.cancellationRequest || !appointment.cancellationRequest.requestedBy) {
+        return res.status(400).json({
+          success: false,
+          message: "This is not a patient-initiated cancellation request",
+        });
+      }
+
+      // Reject the cancellation - restore to previous status (usually confirmed or scheduled)
+      const previousStatus = appointment.cancellationRequest.previousStatus || "confirmed";
+      appointment.status = previousStatus;
+      appointment.cancellationRequest.status = "rejected";
+      appointment.cancellationRequest.reviewedAt = new Date();
+      appointment.cancellationRequest.reviewedBy = req.user._id;
+      if (req.body.adminNotes) {
+        appointment.cancellationRequest.adminNotes = req.body.adminNotes;
+      }
+
+      await appointment.save();
+
+      const updatedAppointment = await Appointment.findById(appointment._id)
+        .populate(
+          "patient",
+          "patientId patientType pediatricRecord.nameOfChildren obGyneRecord.patientName"
+        )
+        .populate("bookedBy", "firstName lastName")
+        .populate("confirmedBy", "firstName lastName");
+
+      res.json({
+        success: true,
+        message: "Cancellation request rejected successfully",
+        data: { appointment: updatedAppointment },
+      });
+    } catch (error) {
+      console.error("Reject cancellation error:", error);
+      res.status(500).json({
+        success: false,
+        message: "Server error rejecting cancellation",
       });
     }
   }
@@ -440,13 +584,43 @@ router.patch(
         });
       }
 
+      // Parse the date string properly to avoid timezone issues
+      // newDate is in format "YYYY-MM-DD", create date at UTC noon to avoid timezone shifts
+      // Using noon (12:00) ensures the date won't shift to previous day regardless of timezone
+      const [year, month, day] = newDate.split('-');
+      const parsedDate = new Date(Date.UTC(parseInt(year), parseInt(month) - 1, parseInt(day), 12, 0, 0));
+
+      // Validate doctor availability for the new date
+      const dayOfWeek = parsedDate.getDay(); // 0 = Sunday, 1 = Monday, etc.
+
+      const schedules = {
+        "Dr. Maria Sarah L. Manaloto": {
+          1: { start: "08:00 AM", end: "12:00 PM" }, // Monday
+          3: { start: "09:00 AM", end: "02:00 PM" }, // Wednesday
+          5: { start: "01:00 PM", end: "05:00 PM" }, // Friday
+        },
+        "Dr. Shara Laine S. Vino": {
+          1: { start: "01:00 PM", end: "05:00 PM" }, // Monday
+          2: { start: "01:00 PM", end: "05:00 PM" }, // Tuesday
+          4: { start: "08:00 AM", end: "12:00 PM" }, // Thursday
+        },
+      };
+
+      const doctorSchedule = schedules[appointment.doctorName];
+      if (doctorSchedule && !doctorSchedule[dayOfWeek]) {
+        return res.status(400).json({
+          success: false,
+          message: `${appointment.doctorName} is not available on ${parsedDate.toLocaleDateString('en-US', { weekday: 'long' })}. Please select a different date.`,
+        });
+      }
+
       // Check for conflicts
       const existingAppointment = await Appointment.findOne({
         _id: { $ne: appointment._id },
         doctorName: appointment.doctorName,
-        appointmentDate: new Date(newDate),
+        appointmentDate: parsedDate,
         appointmentTime: newTime,
-        status: { $in: ["scheduled", "confirmed"] },
+        status: { $in: ["scheduled", "confirmed", "reschedule_pending"] },
       });
 
       if (existingAppointment) {
@@ -463,9 +637,25 @@ router.patch(
         reason: reason || "Rescheduled by staff",
       };
 
-      appointment.appointmentDate = new Date(newDate);
-      appointment.appointmentTime = newTime;
-      appointment.status = "rescheduled";
+      // If this is a patient portal booking, require patient approval
+      if (appointment.bookingSource === "patient_portal" && appointment.patientUserId) {
+        // Store reschedule request for patient approval
+        appointment.rescheduleRequest = {
+          status: "pending",
+          reason: reason || "Rescheduled by staff",
+          requestedAt: new Date(),
+          preferredDate: parsedDate,
+          preferredTime: newTime,
+        };
+        appointment.appointmentDate = parsedDate;
+        appointment.appointmentTime = newTime;
+        appointment.status = "reschedule_pending";
+      } else {
+        // For staff bookings, reschedule directly
+        appointment.appointmentDate = parsedDate;
+        appointment.appointmentTime = newTime;
+        appointment.status = "rescheduled";
+      }
 
       await appointment.save();
 
