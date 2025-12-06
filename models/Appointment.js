@@ -27,7 +27,7 @@ const appointmentSchema = new mongoose.Schema(
     doctorName: {
       type: String,
       required: true,
-      enum: ["Dr. Maria Sarah L. Manaloto", "Dr. Shara Laine S. Vino"],
+      // Removed enum restriction to allow dynamic doctor names from clinic settings
     },
 
     // Appointment scheduling

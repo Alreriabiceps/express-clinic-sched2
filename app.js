@@ -14,6 +14,7 @@ import reportRoutes from './routes/reports.js';
 import availabilityRoutes from './routes/availability.js';
 import patientAuthRoutes from './routes/patientAuth.js';
 import patientBookingRoutes from './routes/patientBooking.js';
+import settingsRoutes from './routes/settings.js';
 
 // Load environment variables
 dotenv.config();
@@ -104,6 +105,9 @@ app.use('/api/availability', availabilityRoutes);
 // Patient portal routes
 app.use('/api/patient/auth', authLimiter, patientAuthRoutes);
 app.use('/api/patient/booking', patientBookingRoutes);
+
+// Settings routes
+app.use('/api/settings', settingsRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

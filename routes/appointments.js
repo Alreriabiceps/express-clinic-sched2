@@ -80,7 +80,7 @@ router.get("/", [authenticateToken, requireStaff], async (req, res) => {
       )
       .populate("patientUserId", "fullName email phoneNumber")
       .populate("bookedBy", "firstName lastName")
-      .sort({ appointmentDate: 1, appointmentTime: 1 })
+      .sort({ createdAt: -1, appointmentDate: -1, appointmentTime: -1 }) // Most recently created first, then by appointment date/time
       .skip(skip)
       .limit(limit);
 
@@ -369,20 +369,22 @@ router.patch(
           }
         }
       } else if (status === "cancelled") {
-        // If cancelling, set to pending for patient approval (only for patient portal bookings)
-        if (appointment.bookingSource === "patient_portal" && appointment.patientUserId) {
-          appointment.status = "cancellation_pending";
-          appointment.cancellationRequest = {
-            status: "pending",
-            reason: cancellationReason || reason || "Cancelled by staff",
-            requestedAt: new Date(),
-          };
-        } else {
-          // For staff bookings, cancel directly
-          appointment.status = "cancelled";
-        }
+        // Admin cancellation: Cancel immediately for all appointments (no patient approval needed)
+        // The patient will be notified but doesn't need to confirm
+        appointment.status = "cancelled";
         if (cancellationReason || reason) {
           appointment.cancellationReason = cancellationReason || reason;
+        }
+        // Record that this was cancelled by admin/staff
+        if (appointment.bookingSource === "patient_portal" && appointment.patientUserId) {
+          appointment.cancellationRequest = {
+            status: "approved", // Already approved by admin
+            reason: cancellationReason || reason || "Cancelled by staff",
+            requestedAt: new Date(),
+            reviewedAt: new Date(),
+            reviewedBy: req.user._id,
+            adminNotes: "Cancelled by clinic staff"
+          };
         }
       } else {
         appointment.status = status;
