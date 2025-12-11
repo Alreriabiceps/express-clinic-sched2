@@ -49,6 +49,15 @@ const patientUserSchema = new mongoose.Schema({
     relationship: String,
     phoneNumber: String
   },
+  consent: {
+    type: Boolean,
+    required: true,
+    default: false
+  },
+  consentDate: {
+    type: Date,
+    default: null
+  },
   // Link to patient medical records
   patientRecord: {
     type: mongoose.Schema.Types.ObjectId,

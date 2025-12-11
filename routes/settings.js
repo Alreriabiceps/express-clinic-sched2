@@ -32,7 +32,7 @@ let clinicSettings = {
   }
 };
 
-// Get clinic settings
+// Get clinic settings (public endpoint for patient booking)
 router.get('/clinic', authenticateToken, async (req, res) => {
   try {
     res.json({
@@ -49,7 +49,7 @@ router.get('/clinic', authenticateToken, async (req, res) => {
   }
 });
 
-// Update clinic settings
+// Update clinic settings (admin only)
 router.put('/clinic', authenticateToken, requireRole(['admin']), async (req, res) => {
   try {
     const { clinicName, obgyneDoctor, pediatrician } = req.body;
@@ -88,4 +88,3 @@ router.put('/clinic', authenticateToken, requireRole(['admin']), async (req, res
 });
 
 export default router;
-
