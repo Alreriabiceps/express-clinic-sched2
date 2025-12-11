@@ -11,9 +11,9 @@ const router = express.Router();
 router.get('/available-dates', async (req, res) => {
   try {
     const { doctorId } = req.query;
-    
+
     console.log('Available dates request for doctorId:', doctorId);
-    
+
     if (!doctorId) {
       return res.status(400).json({
         success: false,
@@ -46,7 +46,7 @@ router.get('/available-dates', async (req, res) => {
     const doctor = doctorSchedules[doctorId];
     console.log('Found doctor:', doctor ? doctor.name : 'NOT FOUND');
     console.log('Doctor schedule:', doctor ? doctor.schedule : 'NO SCHEDULE');
-    
+
     if (!doctor) {
       return res.status(400).json({
         success: false,
@@ -67,7 +67,7 @@ router.get('/available-dates', async (req, res) => {
     while (checkDate <= maxDate) {
       const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
       const dayOfWeek = dayNames[checkDate.getDay()];
-      
+
       // Check if doctor works on this day
       if (doctor.schedule[dayOfWeek]) {
         // Fix timezone issue by using local date formatting
@@ -78,7 +78,7 @@ router.get('/available-dates', async (req, res) => {
         availableDates.push(dateStr);
         console.log(`Adding available date: ${dateStr} (${dayOfWeek})`);
       }
-      
+
       // Move to next day
       checkDate.setDate(checkDate.getDate() + 1);
     }
@@ -110,9 +110,9 @@ router.get('/available-dates', async (req, res) => {
 router.get('/available-slots', async (req, res) => {
   try {
     const { date, doctorId } = req.query;
-    
+
     console.log('Available slots request:', { date, doctorId });
-    
+
     if (!date || !doctorId) {
       return res.status(400).json({
         success: false,
@@ -226,7 +226,7 @@ router.get('/doctors', async (req, res) => {
         description: 'Obstetrics and Gynecology specialist',
         schedule: {
           'Monday': '8:00 AM - 12:00 PM',
-          'Wednesday': '9:00 AM - 2:00 PM', 
+          'Wednesday': '9:00 AM - 2:00 PM',
           'Friday': '1:00 PM - 5:00 PM'
         },
         workingDays: ['Monday', 'Wednesday', 'Friday']
@@ -292,7 +292,7 @@ router.post('/book-appointment', authenticatePatient, [
 
     // Get patient user info from authenticated request
     const patientUser = await PatientUser.findById(req.patient.id);
-    
+
     if (!patientUser) {
       return res.status(404).json({
         success: false,
@@ -317,7 +317,7 @@ router.post('/book-appointment', authenticatePatient, [
 
     // Determine patient info based on type
     let patientName, contactNumber, patientId;
-    
+
     if (patientType === 'self') {
       patientName = patientUser.fullName;
       contactNumber = patientUser.phoneNumber;
@@ -346,7 +346,7 @@ router.post('/book-appointment', authenticatePatient, [
         defaultServiceType: 'PRENATAL_CHECKUP'
       },
       'Dr. Shara Laine S. Vino': {
-        doctorType: 'pediatric', 
+        doctorType: 'pediatric',
         defaultServiceType: 'WELL_CHILD_CHECKUP'
       }
     };
@@ -360,8 +360,8 @@ router.post('/book-appointment', authenticatePatient, [
     }
 
     // Find or create patient record linked to PatientUser
-    let patientRecord = await Patient.findOne({ 
-      'contactInfo.email': patientUser.email 
+    let patientRecord = await Patient.findOne({
+      'contactInfo.email': patientUser.email
     });
 
     if (!patientRecord) {
@@ -382,8 +382,8 @@ router.post('/book-appointment', authenticatePatient, [
           nameOfChildren: patientType === 'dependent' ? dependentInfo?.name || '' : patientUser.fullName,
           address: `${patientUser.address?.street || ''}, ${patientUser.address?.city || ''}, ${patientUser.address?.province || ''}`.trim() || 'Not provided',
           contactNumber: patientUser.phoneNumber,
-          birthDate: patientType === 'dependent' && dependentInfo?.age 
-            ? new Date(new Date().getFullYear() - dependentInfo.age, 0, 1) 
+          birthDate: patientType === 'dependent' && dependentInfo?.age
+            ? new Date(new Date().getFullYear() - dependentInfo.age, 0, 1)
             : patientUser.dateOfBirth,
           immunizations: [],
           consultations: []
@@ -394,36 +394,36 @@ router.post('/book-appointment', authenticatePatient, [
         if (!patientName) {
           throw new Error('Patient name is required for OB-GYNE records');
         }
-        
+
         patientData.obGyneRecord = {
-            patientName: patientName,
-            address: `${patientUser.address?.street || ''}, ${patientUser.address?.city || ''}, ${patientUser.address?.province || ''}`.trim() || 'Not provided',
-            contactNumber: patientUser.phoneNumber,
-            birthDate: patientType === 'dependent' && dependentInfo?.age 
-              ? new Date(new Date().getFullYear() - dependentInfo.age, 0, 1) 
-              : patientUser.dateOfBirth,
-            civilStatus: 'Single', // Default value, can be updated later
-            occupation: '',
-            pastMedicalHistory: {
-              hypertension: false,
-              diabetes: false,
-              heartDisease: false,
-              asthma: false,
-              allergies: '',
-              medications: '',
-              surgeries: '',
-              other: ''
-            },
-            obstetricHistory: [],
-            gynecologicHistory: {
-              menstrualCycle: '',
-              contraceptiveUse: '',
-              gravida: 0,
-              para: 0,
-              abortions: 0
-            },
-            consultations: []
-          };
+          patientName: patientName,
+          address: `${patientUser.address?.street || ''}, ${patientUser.address?.city || ''}, ${patientUser.address?.province || ''}`.trim() || 'Not provided',
+          contactNumber: patientUser.phoneNumber,
+          birthDate: patientType === 'dependent' && dependentInfo?.age
+            ? new Date(new Date().getFullYear() - dependentInfo.age, 0, 1)
+            : patientUser.dateOfBirth,
+          civilStatus: 'Single', // Default value, can be updated later
+          occupation: '',
+          pastMedicalHistory: {
+            hypertension: false,
+            diabetes: false,
+            heartDisease: false,
+            asthma: false,
+            allergies: '',
+            medications: '',
+            surgeries: '',
+            other: ''
+          },
+          obstetricHistory: [],
+          gynecologicHistory: {
+            menstrualCycle: '',
+            contraceptiveUse: '',
+            gravida: 0,
+            para: 0,
+            abortions: 0
+          },
+          consultations: []
+        };
       }
 
       try {
@@ -431,10 +431,10 @@ router.post('/book-appointment', authenticatePatient, [
         const prefix = doctorInfo.doctorType === 'pediatric' ? 'PED' : 'OBG';
         const count = await Patient.countDocuments({ patientType: doctorInfo.doctorType });
         const generatedPatientId = `${prefix}${String(count + 1).padStart(6, '0')}`;
-        
+
         patientData.patientId = generatedPatientId;
         console.log('Creating patient with generated patientId:', generatedPatientId);
-        
+
         patientRecord = new Patient(patientData);
         await patientRecord.save();
         console.log('Patient saved successfully with patientId:', patientRecord.patientId);
@@ -452,6 +452,16 @@ router.post('/book-appointment', authenticatePatient, [
         patientRecord.status = 'New';
         await patientRecord.save();
       }
+    }
+
+    if (patientRecord?.appointmentLocked) {
+      return res.status(403).json({
+        success: false,
+        message: 'Booking is locked due to multiple no-shows. Please contact the clinic to unlock.',
+        data: {
+          noShowCount: patientRecord.noShowCount || 0
+        }
+      });
     }
 
     // Create appointment with all required fields
@@ -478,6 +488,22 @@ router.post('/book-appointment', authenticatePatient, [
     });
 
     await appointment.save();
+
+    // Emit socket event for real-time notification
+    if (req.io) {
+      req.io.emit('appointment:created', {
+        type: 'appointment_created',
+        message: `New appointment booked by ${appointment.patientName}`,
+        data: {
+          id: appointment._id,
+          patientName: appointment.patientName,
+          doctorName: appointment.doctorName,
+          serviceType: appointment.serviceType,
+          date: appointment.appointmentDate,
+          time: appointment.appointmentTime
+        }
+      });
+    }
 
     // Return appointment details
     res.status(201).json({
@@ -536,7 +562,7 @@ router.get('/my-appointments', authenticatePatient, async (req, res) => {
 router.put('/cancel-appointment/:appointmentId', authenticatePatient, async (req, res) => {
   try {
     const { appointmentId } = req.params;
-    
+
     const appointment = await Appointment.findOne({
       appointmentId,
       patientUserId: req.patient.id
@@ -573,6 +599,21 @@ router.put('/cancel-appointment/:appointmentId', authenticatePatient, async (req
     appointment.updatedAt = new Date();
     await appointment.save();
 
+    // Emit socket event for real-time notification
+    if (req.io) {
+      req.io.emit('appointment:cancelled', {
+        type: 'appointment_cancelled',
+        message: `Appointment cancelled by ${appointment.patientName}`,
+        data: {
+          id: appointment._id,
+          patientName: appointment.patientName,
+          doctorName: appointment.doctorName,
+          date: appointment.appointmentDate,
+          time: appointment.appointmentTime
+        }
+      });
+    }
+
     res.json({
       success: true,
       message: 'Appointment cancelled successfully',
@@ -593,24 +634,24 @@ function generateTimeSlots(startTime, endTime, intervalMinutes = 30) {
   const slots = [];
   const [startHour, startMin] = startTime.split(':').map(Number);
   const [endHour, endMin] = endTime.split(':').map(Number);
-  
+
   const startMinutes = startHour * 60 + startMin;
   const endMinutes = endHour * 60 + endMin;
-  
+
   for (let minutes = startMinutes; minutes < endMinutes; minutes += intervalMinutes) {
     const hour = Math.floor(minutes / 60);
     const min = minutes % 60;
-    
+
     let displayHour = hour;
     const ampm = hour >= 12 ? 'PM' : 'AM';
-    
+
     if (hour > 12) displayHour = hour - 12;
     if (hour === 0) displayHour = 12;
-    
+
     const timeString = `${displayHour}:${min.toString().padStart(2, '0')} ${ampm}`;
     slots.push(timeString);
   }
-  
+
   return slots;
 }
 

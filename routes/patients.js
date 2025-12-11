@@ -98,7 +98,7 @@ router.get('/', authenticateToken, async (req, res) => {
 
     const skip = (page - 1) * limit;
     const patients = await Patient.find(query)
-      .select('patientId patientType pediatricRecord.nameOfChildren pediatricRecord.nameOfMother obGyneRecord.patientName contactInfo status createdAt updatedAt')
+      .select('patientId patientType pediatricRecord.nameOfChildren pediatricRecord.nameOfMother obGyneRecord.patientName contactInfo status createdAt updatedAt noShowCount appointmentLocked')
       .sort({ updatedAt: -1, createdAt: -1 })
       .limit(parseInt(limit))
       .skip(skip);
@@ -286,7 +286,7 @@ router.get('/status/:status', authenticateToken, async (req, res) => {
 
     const skip = (page - 1) * limit;
     const patients = await Patient.find(query)
-      .select('patientId patientType pediatricRecord.nameOfChildren pediatricRecord.nameOfMother obGyneRecord.patientName contactInfo status createdAt updatedAt')
+      .select('patientId patientType pediatricRecord.nameOfChildren pediatricRecord.nameOfMother obGyneRecord.patientName contactInfo status createdAt updatedAt noShowCount appointmentLocked')
       .sort({ updatedAt: -1, createdAt: -1 })
       .limit(parseInt(limit))
       .skip(skip);
@@ -348,6 +348,37 @@ router.get('/status/:status', authenticateToken, async (req, res) => {
     res.status(500).json({ 
       success: false,
       message: 'Error fetching patients by status', 
+      error: error.message 
+    });
+  }
+});
+
+// Unlock appointment booking for a patient (admin/staff)
+router.patch('/:id/unlock-appointments', authenticateToken, requireRole(['admin', 'staff']), async (req, res) => {
+  try {
+    const patient = await Patient.findById(req.params.id);
+
+    if (!patient) {
+      return res.status(404).json({ 
+        success: false,
+        message: 'Patient not found' 
+      });
+    }
+
+    patient.appointmentLocked = false;
+    patient.noShowCount = 0;
+    await patient.save();
+
+    res.json({
+      success: true,
+      message: 'Appointment booking unlocked for patient',
+      data: { patient }
+    });
+  } catch (error) {
+    console.error('Error unlocking appointments:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Error unlocking appointments', 
       error: error.message 
     });
   }

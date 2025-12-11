@@ -236,6 +236,7 @@ router.patch('/:id/status', [
       });
     }
 
+    const previousStatus = appointment.status;
     appointment.status = status;
     
     if (status === 'confirmed') {
@@ -257,6 +258,19 @@ router.patch('/:id/status', [
     
     if (staffNotes) {
       appointment.staffNotes = staffNotes;
+    }
+
+    // Track no-show counts and lock booking after 3 strikes
+    if (status === 'no-show' && previousStatus !== 'no-show' && appointment.patient) {
+      const patient = await Patient.findById(appointment.patient);
+      if (patient) {
+        patient.noShowCount = (patient.noShowCount || 0) + 1;
+        patient.lastNoShowAt = new Date();
+        if (patient.noShowCount >= 3) {
+          patient.appointmentLocked = true;
+        }
+        await patient.save();
+      }
     }
 
     await appointment.save();
