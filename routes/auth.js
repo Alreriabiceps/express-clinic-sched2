@@ -3,12 +3,12 @@ import { body, validationResult } from 'express-validator';
 import mongoose from 'mongoose';
 import bcrypt from 'bcryptjs';
 import User from '../models/User.js';
-import { 
-  generateToken, 
-  generateRefreshToken, 
+import {
+  generateToken,
+  generateRefreshToken,
   verifyRefreshToken,
-  authenticateToken, 
-  requireAdmin 
+  authenticateToken,
+  requireAdmin
 } from '../middleware/auth.js';
 
 const router = express.Router();
@@ -20,21 +20,8 @@ router.post('/login', [
 ], async (req, res) => {
   try {
     // Check for validation errors
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({
-        success: false,
-        message: 'Validation failed',
-        errors: errors.array()
-      });
-    }
 
     const { username, password } = req.body;
-
-    console.log('=== LOGIN DEBUG ===');
-    console.log('Username:', username);
-    console.log('Password length:', password?.length);
-    console.log('Database:', mongoose.connection.name);
 
     // Find user by username or email
     const user = await User.findOne({
@@ -72,12 +59,12 @@ router.post('/login', [
 
     // Check password - try both methods
     let isValidPassword = await user.comparePassword(password);
-    
+
     // Fallback to direct bcrypt if comparePassword fails
     if (!isValidPassword) {
       isValidPassword = await bcrypt.compare(password, user.password);
     }
-    
+
     if (!isValidPassword) {
       console.log('❌ Login failed: Invalid password for user:', user.username);
       return res.status(401).json({
@@ -85,7 +72,7 @@ router.post('/login', [
         message: 'Invalid credentials'
       });
     }
-    
+
     console.log('✅ Login successful for:', user.username);
 
     // Update last login

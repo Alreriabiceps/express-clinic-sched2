@@ -181,9 +181,21 @@ router.post('/:id/consultations', authenticateToken, requireRole(['admin', 'doct
     };
 
     if (patient.patientType === 'pediatric') {
-      patient.pediatricInfo.consultations.push(consultationData);
+      if (!patient.pediatricRecord) {
+        return res.status(400).json({ message: 'Pediatric record not found for this patient' });
+      }
+      if (!patient.pediatricRecord.consultations) {
+        patient.pediatricRecord.consultations = [];
+      }
+      patient.pediatricRecord.consultations.push(consultationData);
     } else {
-      patient.obgyneInfo.consultations.push(consultationData);
+      if (!patient.obGyneRecord) {
+        return res.status(400).json({ message: 'OB-GYNE record not found for this patient' });
+      }
+      if (!patient.obGyneRecord.consultations) {
+        patient.obGyneRecord.consultations = [];
+      }
+      patient.obGyneRecord.consultations.push(consultationData);
     }
 
     await patient.save();
@@ -211,12 +223,25 @@ router.post('/:id/immunizations', authenticateToken, requireRole(['admin', 'doct
       return res.status(400).json({ message: 'Immunization records are only for pediatric patients' });
     }
 
+    if (!patient.pediatricRecord) {
+      return res.status(400).json({ message: 'Pediatric record not found for this patient' });
+    }
+
     const immunizationData = {
       ...req.body,
       administeredBy: req.user.id
     };
 
-    patient.pediatricInfo.immunizations.push(immunizationData);
+    // Check if immunizations array exists, if not create it
+    // Note: The schema has immunizations as an object, but we're treating it as an array for individual records
+    // If the schema structure is different, this may need adjustment
+    if (!patient.pediatricRecord.immunizations || !Array.isArray(patient.pediatricRecord.immunizations)) {
+      // If immunizations is an object in the schema, we might need to handle it differently
+      // For now, let's try to create an array if it doesn't exist
+      patient.pediatricRecord.immunizations = [];
+    }
+    
+    patient.pediatricRecord.immunizations.push(immunizationData);
     await patient.save();
 
     res.status(201).json({

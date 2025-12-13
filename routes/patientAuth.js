@@ -1,11 +1,10 @@
 import express from 'express';
 import { body, validationResult } from 'express-validator';
 import PatientUser from '../models/PatientUser.js';
-import Patient from '../models/Patient.js';
-import { 
+import {
   authenticatePatient,
-  generatePatientToken, 
-  generatePatientRefreshToken, 
+  generatePatientToken,
+  generatePatientRefreshToken,
   verifyPatientRefreshToken
 } from '../middleware/patientAuth.js';
 
@@ -119,9 +118,9 @@ router.post('/login', [
     const { email, password } = req.body;
 
     // Find patient by email
-    const patientUser = await PatientUser.findOne({ 
+    const patientUser = await PatientUser.findOne({
       email: email.toLowerCase(),
-      isActive: true 
+      isActive: true
     }).populate('patientRecord');
 
     if (!patientUser) {

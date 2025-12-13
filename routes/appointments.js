@@ -2,7 +2,6 @@ import express from "express";
 import { body, query, validationResult } from "express-validator";
 import Appointment from "../models/Appointment.js";
 import Patient from "../models/Patient.js";
-import PatientUser from "../models/PatientUser.js";
 import { authenticateToken, requireStaff } from "../middleware/auth.js";
 
 const router = express.Router();
@@ -235,8 +234,8 @@ router.post(
         serviceType && serviceType.length > 0
           ? serviceType
           : patient.patientType === "ob-gyne"
-          ? "PRENATAL_CHECKUP"
-          : "WELL_CHILD_CHECKUP";
+            ? "PRENATAL_CHECKUP"
+            : "WELL_CHILD_CHECKUP";
 
       // Normalize legacy/general labels to valid enum
       const normalizedServiceType = (() => {
