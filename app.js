@@ -23,11 +23,47 @@ dotenv.config();
 
 const app = express();
 const httpServer = createServer(app);
+
+// Define allowed origins for both Express and Socket.IO
+const allowedOrigins = [
+  process.env.FRONTEND_URL,
+  'http://localhost:5173',
+  'http://localhost:5174', // Add port 5174
+  'http://localhost:3000', // Common React port
+  'https://vmclinic.vercel.app',
+  'https://vm-clinic.vercel.app', 
+  'https://vite-clinic.vercel.app',
+  // Add more Vercel patterns
+  'https://clinic-frontend.vercel.app',
+  'https://clinic-app.vercel.app'
+].filter(Boolean); // Remove undefined values
+
+// Function to check if origin is a Vercel deployment
+const isVercelOrigin = (origin) => {
+  return origin && origin.includes('.vercel.app');
+};
+
+// Function to check if origin is localhost (any port)
+const isLocalhostOrigin = (origin) => {
+  return origin && origin.startsWith('http://localhost:');
+};
+
+// Socket.IO CORS configuration - must match Express CORS
+// Socket.IO v4 origin can be: string, array, function(origin) => boolean, or regex
 const io = new Server(httpServer, {
   cors: {
-    origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+    origin: (origin) => {
+      // allow requests with no origin (like mobile apps, curl, etc.)
+      if (!origin) {
+        return true;
+      }
+      
+      // Check if origin is allowed
+      return allowedOrigins.includes(origin) || isVercelOrigin(origin) || isLocalhostOrigin(origin);
+    },
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
-    credentials: true
+    credentials: true,
+    allowedHeaders: ["Content-Type", "Authorization"]
   }
 });
 
@@ -42,61 +78,38 @@ app.use((req, res, next) => {
 // Security middleware
 app.use(helmet());
 
-const allowedOrigins = [
-  process.env.FRONTEND_URL,
-  'http://localhost:5173',
-  'http://localhost:5174', // Add port 5174
-  'http://localhost:3000', // Common React port
-  'https://vmclinic.vercel.app',
-  'https://vm-clinic.vercel.app', 
-  'https://vite-clinic.vercel.app',
-  // Add more Vercel patterns
-  'https://clinic-frontend.vercel.app',
-  'https://clinic-app.vercel.app'
-];
-
-// Function to check if origin is a Vercel deployment
-const isVercelOrigin = (origin) => {
-  return origin && origin.includes('.vercel.app');
-};
-
-// Function to check if origin is localhost (any port)
-const isLocalhostOrigin = (origin) => {
-  return origin && origin.startsWith('http://localhost:');
-};
-
 app.use(cors({
   origin: function(origin, callback) {
-    console.log('CORS Debug - Origin:', origin);
-    console.log('CORS Debug - Allowed Origins:', allowedOrigins);
-    
     // allow requests with no origin (like mobile apps, curl, etc.)
     if (!origin) return callback(null, true);
     
     if (allowedOrigins.includes(origin) || isVercelOrigin(origin) || isLocalhostOrigin(origin)) {
       return callback(null, true);
     } else {
-      console.log('CORS Rejected Origin:', origin);
+      // Only log rejected origins in development
+      if (process.env.NODE_ENV === 'development') {
+        console.log('CORS Rejected Origin:', origin);
+      }
       return callback(new Error('Not allowed by CORS'));
     }
   },
   credentials: true
 }));
 
-// Rate limiting - Very permissive for development
+// Rate limiting - Increased limits to prevent 429 errors
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: process.env.NODE_ENV === 'production' ? 100 : 50000, // Very high limit for development
+  max: process.env.NODE_ENV === 'production' ? 1000 : 50000, // Increased from 100 to 1000
   message: 'Too many requests from this IP, please try again later.',
   standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
   legacyHeaders: false, // Disable the `X-RateLimit-*` headers
 });
 app.use(limiter);
 
-// Auth rate limiting (more restrictive) - Very permissive for development
+// Auth rate limiting (more restrictive) - Increased limits
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: process.env.NODE_ENV === 'production' ? 50 : 5000, // Very high limit for development
+  max: process.env.NODE_ENV === 'production' ? 100 : 5000, // Increased from 50 to 100
   message: 'Too many login attempts, please try again later.',
   standardHeaders: true,
   legacyHeaders: false,

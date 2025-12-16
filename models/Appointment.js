@@ -335,27 +335,7 @@ appointmentSchema.pre("save", function (next) {
     return next();
   }
 
-  const appointmentDate = new Date(this.appointmentDate);
-  const dayOfWeek = appointmentDate.getDay(); // 0 = Sunday, 1 = Monday, etc.
-
-  const schedules = {
-    "Dr. Maria Sarah L. Manaloto": {
-      1: { start: "08:00 AM", end: "12:00 PM" }, // Monday
-      3: { start: "09:00 AM", end: "02:00 PM" }, // Wednesday
-      5: { start: "01:00 PM", end: "05:00 PM" }, // Friday
-    },
-    "Dr. Shara Laine S. Vino": {
-      1: { start: "01:00 PM", end: "05:00 PM" }, // Monday
-      2: { start: "01:00 PM", end: "05:00 PM" }, // Tuesday
-      4: { start: "08:00 AM", end: "12:00 PM" }, // Thursday
-    },
-  };
-
-  const doctorSchedule = schedules[this.doctorName];
-  if (doctorSchedule && !doctorSchedule[dayOfWeek]) {
-    return next(new Error(`${this.doctorName} is not available on this day`));
-  }
-
+  // Validation is now handled in the route handlers using dynamic settings
   next();
 });
 

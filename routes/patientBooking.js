@@ -3,6 +3,7 @@ import { body, validationResult } from 'express-validator';
 import Appointment from '../models/Appointment.js';
 import Patient from '../models/Patient.js';
 import PatientUser from '../models/PatientUser.js';
+import Settings from '../models/Settings.js';
 import { authenticatePatient } from '../middleware/patientAuth.js';
 
 const router = express.Router();
@@ -21,24 +22,37 @@ router.get('/available-dates', async (req, res) => {
       });
     }
 
-    // Define doctor schedules with IDs
+    // Fetch settings for dynamic doctor schedules
+    const settings = await Settings.getSettings();
+    
+    // Map settings to doctorSchedules format
+    // Using simple IDs 'doc_1' and 'doc_2' for now to match frontend expectations
+    // Ideally frontend should use real IDs or names
     const doctorSchedules = {
       'doc_1': {
-        name: 'Dr. Maria Sarah L. Manaloto',
+        name: settings.obgyneDoctor.name,
         specialty: 'ob-gyne',
         schedule: {
-          'Monday': { start: '08:00', end: '12:00' },
-          'Wednesday': { start: '09:00', end: '14:00' },
-          'Friday': { start: '13:00', end: '17:00' }
+          'Monday': settings.obgyneDoctor.hours.monday.enabled ? settings.obgyneDoctor.hours.monday : null,
+          'Tuesday': settings.obgyneDoctor.hours.tuesday.enabled ? settings.obgyneDoctor.hours.tuesday : null,
+          'Wednesday': settings.obgyneDoctor.hours.wednesday.enabled ? settings.obgyneDoctor.hours.wednesday : null,
+          'Thursday': settings.obgyneDoctor.hours.thursday.enabled ? settings.obgyneDoctor.hours.thursday : null,
+          'Friday': settings.obgyneDoctor.hours.friday.enabled ? settings.obgyneDoctor.hours.friday : null,
+          'Saturday': settings.obgyneDoctor.hours.saturday.enabled ? settings.obgyneDoctor.hours.saturday : null,
+          'Sunday': settings.obgyneDoctor.hours.sunday.enabled ? settings.obgyneDoctor.hours.sunday : null,
         }
       },
       'doc_2': {
-        name: 'Dr. Shara Laine S. Vino',
+        name: settings.pediatrician.name,
         specialty: 'pediatric',
         schedule: {
-          'Monday': { start: '13:00', end: '17:00' },
-          'Tuesday': { start: '13:00', end: '17:00' },
-          'Thursday': { start: '08:00', end: '12:00' }
+          'Monday': settings.pediatrician.hours.monday.enabled ? settings.pediatrician.hours.monday : null,
+          'Tuesday': settings.pediatrician.hours.tuesday.enabled ? settings.pediatrician.hours.tuesday : null,
+          'Wednesday': settings.pediatrician.hours.wednesday.enabled ? settings.pediatrician.hours.wednesday : null,
+          'Thursday': settings.pediatrician.hours.thursday.enabled ? settings.pediatrician.hours.thursday : null,
+          'Friday': settings.pediatrician.hours.friday.enabled ? settings.pediatrician.hours.friday : null,
+          'Saturday': settings.pediatrician.hours.saturday.enabled ? settings.pediatrician.hours.saturday : null,
+          'Sunday': settings.pediatrician.hours.sunday.enabled ? settings.pediatrician.hours.sunday : null,
         }
       }
     };
@@ -120,24 +134,35 @@ router.get('/available-slots', async (req, res) => {
       });
     }
 
-    // Define doctor schedules with IDs
+    // Fetch settings for dynamic doctor schedules
+    const settings = await Settings.getSettings();
+    
+    // Map settings to doctorSchedules format
     const doctorSchedules = {
       'doc_1': {
-        name: 'Dr. Maria Sarah L. Manaloto',
+        name: settings.obgyneDoctor.name,
         specialty: 'ob-gyne',
         schedule: {
-          'Monday': { start: '08:00', end: '12:00' },
-          'Wednesday': { start: '09:00', end: '14:00' },
-          'Friday': { start: '13:00', end: '17:00' }
+          'Monday': settings.obgyneDoctor.hours.monday.enabled ? settings.obgyneDoctor.hours.monday : null,
+          'Tuesday': settings.obgyneDoctor.hours.tuesday.enabled ? settings.obgyneDoctor.hours.tuesday : null,
+          'Wednesday': settings.obgyneDoctor.hours.wednesday.enabled ? settings.obgyneDoctor.hours.wednesday : null,
+          'Thursday': settings.obgyneDoctor.hours.thursday.enabled ? settings.obgyneDoctor.hours.thursday : null,
+          'Friday': settings.obgyneDoctor.hours.friday.enabled ? settings.obgyneDoctor.hours.friday : null,
+          'Saturday': settings.obgyneDoctor.hours.saturday.enabled ? settings.obgyneDoctor.hours.saturday : null,
+          'Sunday': settings.obgyneDoctor.hours.sunday.enabled ? settings.obgyneDoctor.hours.sunday : null,
         }
       },
       'doc_2': {
-        name: 'Dr. Shara Laine S. Vino',
+        name: settings.pediatrician.name,
         specialty: 'pediatric',
         schedule: {
-          'Monday': { start: '13:00', end: '17:00' },
-          'Tuesday': { start: '13:00', end: '17:00' },
-          'Thursday': { start: '08:00', end: '12:00' }
+          'Monday': settings.pediatrician.hours.monday.enabled ? settings.pediatrician.hours.monday : null,
+          'Tuesday': settings.pediatrician.hours.tuesday.enabled ? settings.pediatrician.hours.tuesday : null,
+          'Wednesday': settings.pediatrician.hours.wednesday.enabled ? settings.pediatrician.hours.wednesday : null,
+          'Thursday': settings.pediatrician.hours.thursday.enabled ? settings.pediatrician.hours.thursday : null,
+          'Friday': settings.pediatrician.hours.friday.enabled ? settings.pediatrician.hours.friday : null,
+          'Saturday': settings.pediatrician.hours.saturday.enabled ? settings.pediatrician.hours.saturday : null,
+          'Sunday': settings.pediatrician.hours.sunday.enabled ? settings.pediatrician.hours.sunday : null,
         }
       }
     };
@@ -217,32 +242,47 @@ router.get('/available-slots', async (req, res) => {
 // Get all available doctors and their schedules
 router.get('/doctors', async (req, res) => {
   try {
+    const settings = await Settings.getSettings();
+
+    // Helper to format schedule string
+    const formatSchedule = (hours) => {
+      const schedule = {};
+      const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+      days.forEach(day => {
+        if (hours[day] && hours[day].enabled) {
+          const dayName = day.charAt(0).toUpperCase() + day.slice(1);
+          schedule[dayName] = `${hours[day].start} - ${hours[day].end}`;
+        }
+      });
+      return schedule;
+    };
+
+    // Helper to get working days
+    const getWorkingDays = (hours) => {
+      const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+      return days
+        .filter(day => hours[day] && hours[day].enabled)
+        .map(day => day.charAt(0).toUpperCase() + day.slice(1));
+    };
+
     const doctors = [
       {
         _id: 'doc_1',
-        name: 'Dr. Maria Sarah L. Manaloto',
+        name: settings.obgyneDoctor.name,
         specialty: 'OB-GYNE',
         specialtyCode: 'ob-gyne',
         description: 'Obstetrics and Gynecology specialist',
-        schedule: {
-          'Monday': '8:00 AM - 12:00 PM',
-          'Wednesday': '9:00 AM - 2:00 PM',
-          'Friday': '1:00 PM - 5:00 PM'
-        },
-        workingDays: ['Monday', 'Wednesday', 'Friday']
+        schedule: formatSchedule(settings.obgyneDoctor.hours),
+        workingDays: getWorkingDays(settings.obgyneDoctor.hours)
       },
       {
         _id: 'doc_2',
-        name: 'Dr. Shara Laine S. Vino',
+        name: settings.pediatrician.name,
         specialty: 'Pediatric',
         specialtyCode: 'pediatric',
         description: 'Pediatrics specialist for children and infants',
-        schedule: {
-          'Monday': '1:00 PM - 5:00 PM',
-          'Tuesday': '1:00 PM - 5:00 PM',
-          'Thursday': '8:00 AM - 12:00 PM'
-        },
-        workingDays: ['Monday', 'Tuesday', 'Thursday']
+        schedule: formatSchedule(settings.pediatrician.hours),
+        workingDays: getWorkingDays(settings.pediatrician.hours)
       }
     ];
 
@@ -339,13 +379,16 @@ router.post('/book-appointment', authenticatePatient, [
     const appointmentCount = await Appointment.countDocuments();
     const appointmentId = `APT${String(appointmentCount + 1).padStart(6, '0')}`;
 
+    // Fetch settings for dynamic doctor names
+    const settings = await Settings.getSettings();
+
     // Map specialty to doctorType and serviceType
     const doctorSchedules = {
-      'Dr. Maria Sarah L. Manaloto': {
+      [settings.obgyneDoctor.name]: {
         doctorType: 'ob-gyne',
         defaultServiceType: 'PRENATAL_CHECKUP'
       },
-      'Dr. Shara Laine S. Vino': {
+      [settings.pediatrician.name]: {
         doctorType: 'pediatric',
         defaultServiceType: 'WELL_CHILD_CHECKUP'
       }
@@ -625,6 +668,352 @@ router.put('/cancel-appointment/:appointmentId', authenticatePatient, async (req
     res.status(500).json({
       success: false,
       message: 'Error cancelling appointment'
+    });
+  }
+});
+
+// Request cancellation (requires admin approval)
+router.post('/request-cancellation/:appointmentId', authenticatePatient, async (req, res) => {
+  try {
+    const { appointmentId } = req.params;
+    const { reason } = req.body;
+
+    if (!reason || !reason.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Cancellation reason is required'
+      });
+    }
+
+    const appointment = await Appointment.findOne({
+      appointmentId,
+      patientUserId: req.patient.id
+    });
+
+    if (!appointment) {
+      return res.status(404).json({
+        success: false,
+        message: 'Appointment not found'
+      });
+    }
+
+    // Check if appointment can be cancelled
+    if (appointment.status === 'cancelled') {
+      return res.status(400).json({
+        success: false,
+        message: 'Appointment is already cancelled'
+      });
+    }
+
+    if (appointment.status === 'cancellation_pending') {
+      return res.status(400).json({
+        success: false,
+        message: 'Cancellation request is already pending'
+      });
+    }
+
+    if (appointment.status === 'completed') {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot cancel a completed appointment'
+      });
+    }
+
+    // Check if appointment is in the future (allow cancellation up to 2 hours before)
+    const appointmentDateTime = new Date(`${appointment.appointmentDate.toISOString().split('T')[0]}T${convertTo24Hour(appointment.appointmentTime)}`);
+    const now = new Date();
+    const timeDifference = appointmentDateTime.getTime() - now.getTime();
+    const hoursDifference = timeDifference / (1000 * 60 * 60);
+
+    if (hoursDifference < 2) {
+      return res.status(400).json({
+        success: false,
+        message: 'Appointments can only be cancelled at least 2 hours in advance'
+      });
+    }
+
+    // Create cancellation request
+    appointment.status = 'cancellation_pending';
+    appointment.cancellationRequest = {
+      status: 'pending',
+      reason: reason.trim(),
+      requestedAt: new Date(),
+      requestedBy: req.patient.id,
+      previousStatus: appointment.status
+    };
+    appointment.updatedAt = new Date();
+    
+    await appointment.save();
+
+    // Emit socket event for real-time notification
+    if (req.io) {
+      req.io.emit('appointment:cancellation_requested', {
+        type: 'cancellation_requested',
+        message: `Cancellation request submitted for appointment with ${appointment.patientName}`,
+        data: {
+          id: appointment._id,
+          appointmentId: appointment.appointmentId,
+          patientName: appointment.patientName,
+          doctorName: appointment.doctorName,
+          date: appointment.appointmentDate,
+          time: appointment.appointmentTime
+        }
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Cancellation request submitted successfully. Please wait for admin approval.',
+      data: { appointment }
+    });
+
+  } catch (error) {
+    console.error('Request cancellation error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error submitting cancellation request',
+      error: error.message
+    });
+  }
+});
+
+// Request reschedule (patient-initiated)
+router.post('/request-reschedule/:appointmentId', authenticatePatient, async (req, res) => {
+  try {
+    const { appointmentId } = req.params;
+    const { newDate, newTime, reason, preferredDate, preferredTime } = req.body;
+
+    // Allow frontend to send either newDate/newTime or preferredDate/preferredTime
+    const dateToUse = newDate || preferredDate;
+    const timeToUse = newTime || preferredTime;
+
+    // Try to find by _id first, then by appointmentId
+    let appointment = await Appointment.findOne({
+      _id: appointmentId,
+      patientUserId: req.patient.id
+    }).catch(() => null);
+
+    if (!appointment) {
+      appointment = await Appointment.findOne({
+        appointmentId: appointmentId,
+        patientUserId: req.patient.id
+      });
+    }
+
+    if (!appointment) {
+      return res.status(404).json({
+        success: false,
+        message: 'Appointment not found'
+      });
+    }
+
+    if (appointment.status === 'cancelled' || appointment.status === 'completed') {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot reschedule a cancelled or completed appointment'
+      });
+    }
+
+    let parsedDate = null;
+
+    // Only validate and check conflicts if a date is provided
+    if (dateToUse && timeToUse) {
+      // Parse the new date
+      const [year, month, day] = dateToUse.split('-');
+      parsedDate = new Date(Date.UTC(parseInt(year), parseInt(month) - 1, parseInt(day), 12, 0, 0));
+
+      // Check for conflicts
+      const existingAppointment = await Appointment.findOne({
+        _id: { $ne: appointment._id },
+        doctorName: appointment.doctorName,
+        appointmentDate: parsedDate,
+        appointmentTime: timeToUse,
+        status: { $in: ["scheduled", "confirmed", "reschedule_pending"] },
+      });
+
+      if (existingAppointment) {
+        return res.status(400).json({
+          success: false,
+          message: 'The requested time slot is already booked'
+        });
+      }
+    }
+
+    // Create reschedule request
+    appointment.rescheduleRequest = {
+      status: 'pending',
+      reason: reason || 'Patient requested reschedule',
+      requestedAt: new Date(),
+      preferredDate: parsedDate,
+      preferredTime: timeToUse,
+      requestedBy: req.patient.id
+    };
+    appointment.status = 'reschedule_pending';
+    appointment.updatedAt = new Date();
+    
+    await appointment.save();
+
+    // Emit socket event
+    if (req.io) {
+      req.io.emit('appointment:reschedule_requested', {
+        type: 'reschedule_requested',
+        message: `Reschedule request submitted for appointment with ${appointment.patientName}`,
+        data: {
+          id: appointment._id,
+          appointmentId: appointment.appointmentId,
+          patientName: appointment.patientName,
+          doctorName: appointment.doctorName
+        }
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Reschedule request submitted successfully. Please wait for admin approval.',
+      data: { appointment }
+    });
+
+  } catch (error) {
+    console.error('Request reschedule error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error submitting reschedule request',
+      error: error.message
+    });
+  }
+});
+
+// Accept reschedule (patient accepts staff-initiated reschedule)
+router.post('/accept-reschedule/:appointmentId', authenticatePatient, async (req, res) => {
+  try {
+    const { appointmentId } = req.params;
+
+    const appointment = await Appointment.findOne({
+      _id: appointmentId,
+      patientUserId: req.patient.id
+    });
+
+    if (!appointment) {
+      return res.status(404).json({
+        success: false,
+        message: 'Appointment not found'
+      });
+    }
+
+    if (!appointment.rescheduleRequest || appointment.rescheduleRequest.status !== 'pending') {
+      return res.status(400).json({
+        success: false,
+        message: 'No pending reschedule request found for this appointment'
+      });
+    }
+
+    // Apply the reschedule
+    appointment.appointmentDate = appointment.rescheduleRequest.preferredDate;
+    appointment.appointmentTime = appointment.rescheduleRequest.preferredTime;
+    appointment.status = 'confirmed';
+    appointment.rescheduleRequest.status = 'approved';
+    appointment.rescheduleRequest.reviewedAt = new Date();
+    appointment.updatedAt = new Date();
+    
+    await appointment.save();
+
+    // Emit socket event
+    if (req.io) {
+      req.io.emit('appointment:reschedule_accepted', {
+        type: 'reschedule_accepted',
+        message: `Reschedule accepted for appointment with ${appointment.patientName}`,
+        data: {
+          id: appointment._id,
+          appointmentId: appointment.appointmentId,
+          patientName: appointment.patientName,
+          doctorName: appointment.doctorName,
+          newDate: appointment.appointmentDate,
+          newTime: appointment.appointmentTime
+        }
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Reschedule accepted successfully',
+      data: { appointment }
+    });
+
+  } catch (error) {
+    console.error('Accept reschedule error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error accepting reschedule',
+      error: error.message
+    });
+  }
+});
+
+// Cancel reschedule (patient rejects staff-initiated reschedule)
+router.post('/cancel-reschedule/:appointmentId', authenticatePatient, async (req, res) => {
+  try {
+    const { appointmentId } = req.params;
+
+    const appointment = await Appointment.findOne({
+      _id: appointmentId,
+      patientUserId: req.patient.id
+    });
+
+    if (!appointment) {
+      return res.status(404).json({
+        success: false,
+        message: 'Appointment not found'
+      });
+    }
+
+    if (!appointment.rescheduleRequest || appointment.rescheduleRequest.status !== 'pending') {
+      return res.status(400).json({
+        success: false,
+        message: 'No pending reschedule request found for this appointment'
+      });
+    }
+
+    // Reject the reschedule - revert to original status
+    appointment.rescheduleRequest.status = 'rejected';
+    appointment.rescheduleRequest.rejectedAt = new Date();
+    
+    // Revert to original date/time if stored
+    if (appointment.rescheduledFrom) {
+      appointment.appointmentDate = appointment.rescheduledFrom.originalDate;
+      appointment.appointmentTime = appointment.rescheduledFrom.originalTime;
+    }
+    
+    appointment.status = 'scheduled'; // Revert to scheduled
+    appointment.updatedAt = new Date();
+    
+    await appointment.save();
+
+    // Emit socket event
+    if (req.io) {
+      req.io.emit('appointment:reschedule_rejected', {
+        type: 'reschedule_rejected',
+        message: `Reschedule rejected for appointment with ${appointment.patientName}`,
+        data: {
+          id: appointment._id,
+          appointmentId: appointment.appointmentId,
+          patientName: appointment.patientName,
+          doctorName: appointment.doctorName
+        }
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Reschedule request rejected. Appointment remains at original time.',
+      data: { appointment }
+    });
+
+  } catch (error) {
+    console.error('Cancel reschedule error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error rejecting reschedule',
+      error: error.message
     });
   }
 });

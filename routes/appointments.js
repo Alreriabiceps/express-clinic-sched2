@@ -2,6 +2,8 @@ import express from "express";
 import { body, query, validationResult } from "express-validator";
 import Appointment from "../models/Appointment.js";
 import Patient from "../models/Patient.js";
+import PatientUser from "../models/PatientUser.js";
+import Settings from "../models/Settings.js";
 import { authenticateToken, requireStaff } from "../middleware/auth.js";
 
 const router = express.Router();
@@ -142,12 +144,8 @@ router.post(
     authenticateToken,
     requireStaff,
     body("patientId").notEmpty().withMessage("Patient ID is required"),
-    body("doctorType")
-      .isIn(["ob-gyne", "pediatric"])
-      .withMessage("Valid doctor type is required"),
-    body("doctorName")
-      .isIn(["Dr. Maria Sarah L. Manaloto", "Dr. Shara Laine S. Vino"])
-      .withMessage("Valid doctor name is required"),
+    body("doctorType").notEmpty().withMessage("Doctor type is required"),
+    body("doctorName").notEmpty().withMessage("Doctor name is required"),
     body("appointmentDate")
       .isISO8601()
       .withMessage("Valid appointment date is required"),
@@ -266,9 +264,21 @@ router.post(
         });
       }
 
+      // Try to find linked PatientUser to enable notifications
+      let patientUserId = undefined;
+      // Check if patient has an email in contact info
+      const patientEmail = patient.contactInfo?.email;
+      if (patientEmail) {
+        const patientUser = await PatientUser.findOne({ email: patientEmail });
+        if (patientUser) {
+          patientUserId = patientUser._id;
+        }
+      }
+
       // Create appointment
       const appointment = new Appointment({
         patient: patient._id,
+        patientUserId: patientUserId, // Link to patient user for notifications
         doctorType,
         doctorName,
         appointmentDate: new Date(appointmentDate),
@@ -369,6 +379,28 @@ router.patch(
             await patient.save();
           }
         }
+
+        // If we are confirming a reschedule pending appointment, it means we are rejecting the reschedule request
+        if (previousStatus === 'reschedule_pending' && appointment.rescheduleRequest) {
+          appointment.rescheduleRequest.status = 'rejected';
+          appointment.rescheduleRequest.reviewedAt = new Date();
+          appointment.rescheduleRequest.reviewedBy = req.user._id;
+        }
+
+        // Emit socket event for confirmation
+        if (req.io && appointment.patientUserId) {
+          req.io.emit('appointment:confirmed', {
+            type: 'appointment_confirmed',
+            message: `Your appointment with ${appointment.doctorName} has been confirmed.`,
+            data: {
+              id: appointment._id,
+              patientName: appointment.patientName,
+              doctorName: appointment.doctorName,
+              date: appointment.appointmentDate,
+              time: appointment.appointmentTime
+            }
+          });
+        }
       } else if (status === "cancelled") {
         // Admin cancellation: Cancel immediately for all appointments (no patient approval needed)
         // The patient will be notified but doesn't need to confirm
@@ -387,8 +419,53 @@ router.patch(
             adminNotes: "Cancelled by clinic staff"
           };
         }
+        
+        // Emit socket event for cancellation
+        if (req.io && appointment.patientUserId) {
+          req.io.emit('appointment:cancelled', {
+            type: 'appointment_cancelled',
+            message: `Your appointment with ${appointment.doctorName} has been cancelled.`,
+            data: {
+              id: appointment._id,
+              patientName: appointment.patientName,
+              doctorName: appointment.doctorName,
+              date: appointment.appointmentDate,
+              time: appointment.appointmentTime,
+              reason: cancellationReason || reason
+            }
+          });
+        }
       } else {
         appointment.status = status;
+        
+        // Emit socket events for other statuses
+        if (req.io && appointment.patientUserId) {
+          if (status === 'rescheduled') {
+            req.io.emit('appointment:rescheduled', {
+              type: 'appointment_rescheduled',
+              message: `Your appointment with ${appointment.doctorName} has been rescheduled.`,
+              data: {
+                id: appointment._id,
+                patientName: appointment.patientName,
+                doctorName: appointment.doctorName,
+                date: appointment.appointmentDate,
+                time: appointment.appointmentTime
+              }
+            });
+          } else if (status === 'completed') {
+            req.io.emit('appointment:completed', {
+              type: 'appointment_completed',
+              message: `Your appointment with ${appointment.doctorName} has been marked as completed.`,
+              data: {
+                id: appointment._id,
+                patientName: appointment.patientName,
+                doctorName: appointment.doctorName,
+                date: appointment.appointmentDate,
+                time: appointment.appointmentTime
+              }
+            });
+          }
+        }
       }
 
       if (staffNotes) {
@@ -405,6 +482,21 @@ router.patch(
             patient.appointmentLocked = true;
           }
           await patient.save();
+          
+          // Emit socket event for no-show
+          if (req.io && appointment.patientUserId) {
+            req.io.emit('appointment:no_show', {
+              type: 'appointment_no_show',
+              message: `You have been marked as a no-show for your appointment with ${appointment.doctorName}.`,
+              data: {
+                id: appointment._id,
+                patientName: appointment.patientName,
+                doctorName: appointment.doctorName,
+                date: appointment.appointmentDate,
+                time: appointment.appointmentTime
+              }
+            });
+          }
         }
       }
 
@@ -472,6 +564,22 @@ router.patch(
       }
 
       await appointment.save();
+
+      // Emit socket event for cancellation approval
+      if (req.io && appointment.patientUserId) {
+        req.io.emit('appointment:cancelled', {
+          type: 'appointment_cancelled',
+          message: `Your cancellation request for appointment with ${appointment.doctorName} has been approved.`,
+          data: {
+            id: appointment._id,
+            patientName: appointment.patientName,
+            doctorName: appointment.doctorName,
+            date: appointment.appointmentDate,
+            time: appointment.appointmentTime,
+            reason: appointment.cancellationRequest?.reason
+          }
+        });
+      }
 
       const updatedAppointment = await Appointment.findById(appointment._id)
         .populate(
@@ -602,29 +710,31 @@ router.patch(
       const [year, month, day] = newDate.split('-');
       const parsedDate = new Date(Date.UTC(parseInt(year), parseInt(month) - 1, parseInt(day), 12, 0, 0));
 
-      // Validate doctor availability for the new date
+      // Validate doctor availability for the new date using Settings
       const dayOfWeek = parsedDate.getDay(); // 0 = Sunday, 1 = Monday, etc.
+      const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+      const dayName = dayNames[dayOfWeek];
 
-      const schedules = {
-        "Dr. Maria Sarah L. Manaloto": {
-          1: { start: "08:00 AM", end: "12:00 PM" }, // Monday
-          3: { start: "09:00 AM", end: "02:00 PM" }, // Wednesday
-          5: { start: "01:00 PM", end: "05:00 PM" }, // Friday
-        },
-        "Dr. Shara Laine S. Vino": {
-          1: { start: "01:00 PM", end: "05:00 PM" }, // Monday
-          2: { start: "01:00 PM", end: "05:00 PM" }, // Tuesday
-          4: { start: "08:00 AM", end: "12:00 PM" }, // Thursday
-        },
-      };
+      const settings = await Settings.getSettings();
+      let doctorSchedule = null;
 
-      const doctorSchedule = schedules[appointment.doctorName];
-      if (doctorSchedule && !doctorSchedule[dayOfWeek]) {
+      // Check if doctor matches OB-GYNE or Pediatrician in settings
+      if (settings.obgyneDoctor.name === appointment.doctorName) {
+        doctorSchedule = settings.obgyneDoctor.hours[dayName];
+      } else if (settings.pediatrician.name === appointment.doctorName) {
+        doctorSchedule = settings.pediatrician.hours[dayName];
+      }
+
+      // If we found a schedule and the day is not enabled
+      if (doctorSchedule && !doctorSchedule.enabled) {
         return res.status(400).json({
           success: false,
           message: `${appointment.doctorName} is not available on ${parsedDate.toLocaleDateString('en-US', { weekday: 'long' })}. Please select a different date.`,
         });
       }
+      
+      // If we didn't find a schedule (doctor name mismatch), we allow it (fallback behavior)
+      // or we could block it, but allowing it is safer for legacy data
 
       // Check for conflicts
       const existingAppointment = await Appointment.findOne({
@@ -649,27 +759,74 @@ router.patch(
         reason: reason || "Rescheduled by staff",
       };
 
-      // If this is a patient portal booking, require patient approval
+      // If this is a patient portal booking
       if (appointment.bookingSource === "patient_portal" && appointment.patientUserId) {
-        // Store reschedule request for patient approval
-        appointment.rescheduleRequest = {
-          status: "pending",
-          reason: reason || "Rescheduled by staff",
-          requestedAt: new Date(),
-          preferredDate: parsedDate,
-          preferredTime: newTime,
-        };
-        appointment.appointmentDate = parsedDate;
-        appointment.appointmentTime = newTime;
-        appointment.status = "reschedule_pending";
+        // If it's already pending reschedule (patient requested it), this is an admin approval
+        if (appointment.status === "reschedule_pending") {
+           appointment.appointmentDate = parsedDate;
+           appointment.appointmentTime = newTime;
+           appointment.status = "confirmed";
+           if (appointment.rescheduleRequest) {
+             appointment.rescheduleRequest.status = "approved";
+             appointment.rescheduleRequest.reviewedAt = new Date();
+             appointment.rescheduleRequest.reviewedBy = req.user._id;
+           }
+        } else {
+          // Otherwise, it's a staff-initiated reschedule requiring patient approval
+          appointment.rescheduleRequest = {
+            status: "pending",
+            reason: reason || "Rescheduled by staff",
+            requestedAt: new Date(),
+            preferredDate: parsedDate,
+            preferredTime: newTime,
+          };
+          appointment.appointmentDate = parsedDate;
+          appointment.appointmentTime = newTime;
+          appointment.status = "reschedule_pending";
+        }
       } else {
         // For staff bookings, reschedule directly
         appointment.appointmentDate = parsedDate;
         appointment.appointmentTime = newTime;
-        appointment.status = "rescheduled";
+        appointment.status = "confirmed";
       }
 
       await appointment.save();
+
+      // Emit socket event for reschedule
+      if (req.io && appointment.patientUserId) {
+        // If it's a request (pending), notify about the request
+        if (appointment.status === 'reschedule_pending') {
+          req.io.emit('appointment:reschedule_pending', {
+            type: 'appointment_reschedule_pending',
+            message: `Your reschedule request for appointment with ${appointment.doctorName} is pending approval.`,
+            data: {
+              id: appointment._id,
+              patientName: appointment.patientName,
+              doctorName: appointment.doctorName,
+              date: appointment.appointmentDate,
+              time: appointment.appointmentTime,
+              preferredDate: appointment.rescheduleRequest?.preferredDate,
+              preferredTime: appointment.rescheduleRequest?.preferredTime
+            }
+          });
+        } else {
+          // Direct reschedule
+          req.io.emit('appointment:rescheduled', {
+            type: 'appointment_rescheduled',
+            message: `Your appointment with ${appointment.doctorName} has been rescheduled.`,
+            data: {
+              id: appointment._id,
+              patientName: appointment.patientName,
+              doctorName: appointment.doctorName,
+              date: appointment.appointmentDate,
+              time: appointment.appointmentTime,
+              originalDate: appointment.rescheduledFrom?.originalDate,
+              originalTime: appointment.rescheduledFrom?.originalTime
+            }
+          });
+        }
+      }
 
       const updatedAppointment = await Appointment.findById(appointment._id)
         .populate(

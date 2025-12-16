@@ -1,7 +1,60 @@
 import express from 'express';
 import { authenticateToken, requireRole } from '../middleware/auth.js';
+import { authenticatePatient } from '../middleware/patientAuth.js';
+import jwt from 'jsonwebtoken';
+import User from '../models/User.js';
+import PatientUser from '../models/PatientUser.js';
 
 const router = express.Router();
+
+const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
+
+// Middleware that accepts both patient and staff/admin tokens
+const authenticateAny = async (req, res, next) => {
+  try {
+    const authHeader = req.headers.authorization;
+    const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
+
+    if (!token) {
+      return res.status(401).json({ 
+        success: false, 
+        message: 'Access token required' 
+      });
+    }
+
+    const decoded = jwt.verify(token, JWT_SECRET);
+    
+    // Try to find as staff/admin user first
+    const user = await User.findById(decoded.id).select('-password');
+    if (user && user.isActive) {
+      req.user = user;
+      req.authType = 'staff';
+      return next();
+    }
+    
+    // Try to find as patient user
+    const patient = await PatientUser.findById(decoded.id).select('-password');
+    if (patient && patient.isActive) {
+      req.patient = {
+        ...patient.toObject(),
+        id: patient._id.toString()
+      };
+      req.authType = 'patient';
+      return next();
+    }
+    
+    return res.status(401).json({ 
+      success: false, 
+      message: 'Invalid token or account not active' 
+    });
+  } catch (error) {
+    console.error('Auth middleware error:', error);
+    return res.status(403).json({ 
+      success: false, 
+      message: 'Invalid or expired token' 
+    });
+  }
+};
 
 // In-memory store for clinic settings (can be replaced with database later)
 let clinicSettings = {
@@ -32,8 +85,8 @@ let clinicSettings = {
   }
 };
 
-// Get clinic settings (public endpoint for patient booking)
-router.get('/clinic', authenticateToken, async (req, res) => {
+// Get clinic settings (accessible to both patients and staff)
+router.get('/clinic', authenticateAny, async (req, res) => {
   try {
     res.json({
       success: true,
