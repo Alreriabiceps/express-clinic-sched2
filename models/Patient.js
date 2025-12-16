@@ -84,6 +84,21 @@ const pediatricRecordSchema = new mongoose.Schema({
     mantouxTest: { date: Date, remarks: String },
   },
   
+  // Immunization Records (array for individual records)
+  immunizationRecords: [{
+    vaccine: { type: String, trim: true },
+    vaccineName: { type: String, trim: true },
+    date: { type: Date, required: true },
+    remarks: { type: String, trim: true },
+    notes: { type: String, trim: true },
+    batchNumber: { type: String, trim: true },
+    manufacturer: { type: String, trim: true },
+    site: { type: String, trim: true },
+    route: { type: String, trim: true },
+    administeredBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    createdAt: { type: Date, default: Date.now }
+  }],
+  
   // Consultation Records
   consultations: [{
     date: { type: Date, default: Date.now },
