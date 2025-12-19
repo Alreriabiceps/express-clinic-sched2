@@ -7,20 +7,65 @@ const router = express.Router();
 // Create new patient
 router.post('/', authenticateToken, requireRole(['admin', 'staff']), async (req, res) => {
   try {
-    const patientData = req.body;
+    const { patientType, record } = req.body;
     
-    // Check if patient already exists
-    const existingPatient = await Patient.findOne({
-      $or: [
-        { 'personalInfo.firstName': patientData.personalInfo.firstName, 'personalInfo.lastName': patientData.personalInfo.lastName },
-        { 'personalInfo.contactNumber': patientData.personalInfo.contactNumber }
-      ]
-    });
-
-    if (existingPatient) {
-      return res.status(400).json({ message: 'Patient with this name or contact number already exists' });
+    // Validate required fields
+    if (!patientType) {
+      return res.status(400).json({ message: 'Patient type is required' });
+    }
+    
+    if (!record) {
+      return res.status(400).json({ message: 'Patient record is required' });
     }
 
+    // Prepare patient data based on type
+    let patientData = {
+      patientType: patientType
+    };
+
+    // Map record to the appropriate field based on patient type
+    if (patientType === 'ob-gyne') {
+      if (!record.patientName) {
+        return res.status(400).json({ message: 'Patient name is required for OB-GYNE patients' });
+      }
+      patientData.obGyneRecord = record;
+      
+      // Check if patient already exists (OB-GYNE)
+      const existingPatient = await Patient.findOne({
+        patientType: 'ob-gyne',
+        $or: [
+          { 'obGyneRecord.patientName': record.patientName },
+          { 'obGyneRecord.contactNumber': record.contactNumber }
+        ]
+      });
+
+      if (existingPatient) {
+        return res.status(400).json({ message: 'Patient with this name or contact number already exists' });
+      }
+    } else if (patientType === 'pediatric') {
+      if (!record.nameOfChildren) {
+        return res.status(400).json({ message: 'Child name is required for pediatric patients' });
+      }
+      patientData.pediatricRecord = record;
+      
+      // Check if patient already exists (Pediatric)
+      const existingPatient = await Patient.findOne({
+        patientType: 'pediatric',
+        $or: [
+          { 'pediatricRecord.nameOfChildren': record.nameOfChildren },
+          { 'pediatricRecord.contactNumber': record.contactNumber }
+        ]
+      });
+
+      if (existingPatient) {
+        return res.status(400).json({ message: 'Patient with this name or contact number already exists' });
+      }
+    } else {
+      return res.status(400).json({ message: 'Invalid patient type. Must be "pediatric" or "ob-gyne"' });
+    }
+
+    // Generate patientId (will be handled by pre-save hook in model)
+    // For now, we'll let the model handle it
     const patient = new Patient(patientData);
     await patient.save();
     
@@ -28,9 +73,11 @@ router.post('/', authenticateToken, requireRole(['admin', 'staff']), async (req,
       message: 'Patient created successfully',
       patient: {
         _id: patient._id,
-        personalInfo: patient.personalInfo,
+        patientId: patient.patientId,
         patientType: patient.patientType,
-        patientNumber: patient.patientNumber
+        patientNumber: patient.patientNumber,
+        obGyneRecord: patient.obGyneRecord,
+        pediatricRecord: patient.pediatricRecord
       }
     });
   } catch (error) {
@@ -47,11 +94,22 @@ router.get('/search', authenticateToken, async (req, res) => {
     let searchQuery = {};
     
     if (query) {
+      // Search across multiple fields for both patient types
       searchQuery.$or = [
-        { 'personalInfo.firstName': { $regex: query, $options: 'i' } },
-        { 'personalInfo.lastName': { $regex: query, $options: 'i' } },
+        // Patient ID and number
+        { patientId: { $regex: query, $options: 'i' } },
         { patientNumber: { $regex: query, $options: 'i' } },
-        { 'personalInfo.contactNumber': { $regex: query, $options: 'i' } }
+        // OB-GYNE patient fields
+        { 'obGyneRecord.patientName': { $regex: query, $options: 'i' } },
+        { 'obGyneRecord.contactNumber': { $regex: query, $options: 'i' } },
+        // Pediatric patient fields
+        { 'pediatricRecord.nameOfChildren': { $regex: query, $options: 'i' } },
+        { 'pediatricRecord.nameOfMother': { $regex: query, $options: 'i' } },
+        { 'pediatricRecord.nameOfFather': { $regex: query, $options: 'i' } },
+        { 'pediatricRecord.contactNumber': { $regex: query, $options: 'i' } },
+        // Contact info (if exists)
+        { 'contactInfo.email': { $regex: query, $options: 'i' } },
+        { 'contactInfo.phoneNumber': { $regex: query, $options: 'i' } }
       ];
     }
     
@@ -61,8 +119,8 @@ router.get('/search', authenticateToken, async (req, res) => {
 
     const skip = (page - 1) * limit;
     const patients = await Patient.find(searchQuery)
-      .select('personalInfo patientType patientNumber patientId status createdAt')
-      .sort({ createdAt: -1 })
+      .select('patientId patientType pediatricRecord.nameOfChildren pediatricRecord.nameOfMother pediatricRecord.contactNumber obGyneRecord.patientName obGyneRecord.contactNumber contactInfo status createdAt updatedAt noShowCount appointmentLocked')
+      .sort({ updatedAt: -1, createdAt: -1 })
       .limit(parseInt(limit))
       .skip(skip);
 
@@ -98,7 +156,7 @@ router.get('/', authenticateToken, async (req, res) => {
 
     const skip = (page - 1) * limit;
     const patients = await Patient.find(query)
-      .select('patientId patientType pediatricRecord.nameOfChildren pediatricRecord.nameOfMother obGyneRecord.patientName contactInfo status createdAt updatedAt noShowCount appointmentLocked')
+      .select('patientId patientType pediatricRecord.nameOfChildren pediatricRecord.nameOfMother pediatricRecord.contactNumber obGyneRecord.patientName obGyneRecord.contactNumber contactInfo status createdAt updatedAt noShowCount appointmentLocked')
       .sort({ updatedAt: -1, createdAt: -1 })
       .limit(parseInt(limit))
       .skip(skip);
@@ -519,7 +577,7 @@ router.get('/status/:status', authenticateToken, async (req, res) => {
 
     const skip = (page - 1) * limit;
     const patients = await Patient.find(query)
-      .select('patientId patientType pediatricRecord.nameOfChildren pediatricRecord.nameOfMother obGyneRecord.patientName contactInfo status createdAt updatedAt noShowCount appointmentLocked')
+      .select('patientId patientType pediatricRecord.nameOfChildren pediatricRecord.nameOfMother pediatricRecord.contactNumber obGyneRecord.patientName obGyneRecord.contactNumber contactInfo status createdAt updatedAt noShowCount appointmentLocked')
       .sort({ updatedAt: -1, createdAt: -1 })
       .limit(parseInt(limit))
       .skip(skip);

@@ -387,6 +387,39 @@ router.patch(
           appointment.rescheduleRequest.reviewedBy = req.user._id;
         }
 
+        // Cancel other scheduled appointments for the same time slot
+        // These are competing appointments that weren't confirmed
+        const conflictingAppointments = await Appointment.find({
+          _id: { $ne: appointment._id }, // Exclude the one being confirmed
+          appointmentDate: appointment.appointmentDate,
+          appointmentTime: appointment.appointmentTime,
+          doctorName: appointment.doctorName,
+          status: 'scheduled' // Only cancel scheduled (pending) appointments
+        });
+
+        // Cancel and notify each conflicting appointment
+        for (const conflictingAppt of conflictingAppointments) {
+          conflictingAppt.status = 'cancelled';
+          conflictingAppt.cancellationReason = `This time slot was confirmed for another patient. Please book a different time.`;
+          await conflictingAppt.save();
+
+          // Notify the patient whose appointment was canceled
+          if (req.io && conflictingAppt.patientUserId) {
+            req.io.emit('appointment:cancelled', {
+              type: 'appointment_slot_conflicted',
+              message: `Your appointment with ${conflictingAppt.doctorName} on ${new Date(conflictingAppt.appointmentDate).toLocaleDateString()} at ${conflictingAppt.appointmentTime} was canceled because the time slot was confirmed for another patient. Please book a different appointment.`,
+              data: {
+                id: conflictingAppt._id,
+                patientName: conflictingAppt.patientName,
+                doctorName: conflictingAppt.doctorName,
+                date: conflictingAppt.appointmentDate,
+                time: conflictingAppt.appointmentTime,
+                reason: 'Slot confirmed for another patient'
+              }
+            });
+          }
+        }
+
         // Emit socket event for confirmation
         if (req.io && appointment.patientUserId) {
           req.io.emit('appointment:confirmed', {

@@ -200,28 +200,54 @@ router.get('/available-slots', async (req, res) => {
     const timeSlots = generateTimeSlots(start, end, 30);
     console.log('Generated time slots:', timeSlots);
 
-    // Get existing appointments for this date and doctor
-    const existingAppointments = await Appointment.find({
+    // Get existing CONFIRMED appointments for this date and doctor
+    // Only confirmed appointments block the slot - scheduled ones are still available for booking
+    const confirmedAppointments = await Appointment.find({
       appointmentDate: {
         $gte: new Date(date + 'T00:00:00.000Z'),
         $lt: new Date(date + 'T23:59:59.999Z')
       },
       doctorName: doctor.name,
-      status: { $nin: ['cancelled'] }
+      status: 'confirmed' // Only block if confirmed, not scheduled
     });
 
-    console.log('Existing appointments:', existingAppointments.length);
+    // Get SCHEDULED appointments to show count of pending bookings
+    const scheduledAppointments = await Appointment.find({
+      appointmentDate: {
+        $gte: new Date(date + 'T00:00:00.000Z'),
+        $lt: new Date(date + 'T23:59:59.999Z')
+      },
+      doctorName: doctor.name,
+      status: 'scheduled' // Count scheduled appointments
+    });
 
-    // Filter out booked slots
-    const bookedTimes = existingAppointments.map(apt => apt.appointmentTime);
+    console.log('Existing confirmed appointments:', confirmedAppointments.length);
+    console.log('Existing scheduled appointments:', scheduledAppointments.length);
+
+    // Filter out booked slots (only confirmed ones)
+    const bookedTimes = confirmedAppointments.map(apt => apt.appointmentTime);
     const availableSlots = timeSlots.filter(slot => !bookedTimes.includes(slot));
 
-    console.log('Available slots:', availableSlots);
+    // Count scheduled appointments per time slot
+    const scheduledCounts = {};
+    scheduledAppointments.forEach(apt => {
+      const time = apt.appointmentTime;
+      scheduledCounts[time] = (scheduledCounts[time] || 0) + 1;
+    });
+
+    // Create slots with booking count information
+    const slotsWithCounts = availableSlots.map(slot => ({
+      time: slot,
+      scheduledCount: scheduledCounts[slot] || 0
+    }));
+
+    console.log('Available slots with counts:', slotsWithCounts);
 
     res.json({
       success: true,
       data: {
-        slots: availableSlots,
+        slots: availableSlots, // Keep backward compatibility
+        slotsWithCounts: slotsWithCounts, // New format with counts
         doctorInfo: {
           name: doctor.name,
           specialty: doctor.specialty,
@@ -340,18 +366,19 @@ router.post('/book-appointment', authenticatePatient, [
       });
     }
 
-    // Check if slot is still available
-    const existingAppointment = await Appointment.findOne({
+    // Check if slot is already confirmed by another patient
+    // Allow multiple "scheduled" appointments - they'll compete for confirmation
+    const confirmedAppointment = await Appointment.findOne({
       appointmentDate: new Date(appointmentDate),
       appointmentTime,
       doctorName,
-      status: { $nin: ['cancelled'] }
+      status: 'confirmed'
     });
 
-    if (existingAppointment) {
+    if (confirmedAppointment) {
       return res.status(400).json({
         success: false,
-        message: 'This time slot is no longer available'
+        message: 'This time slot has already been confirmed for another patient'
       });
     }
 
