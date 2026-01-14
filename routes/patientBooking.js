@@ -822,11 +822,17 @@ router.post('/request-reschedule/:appointmentId', authenticatePatient, async (re
       const [year, month, day] = dateToUse.split('-');
       parsedDate = new Date(Date.UTC(parseInt(year), parseInt(month) - 1, parseInt(day), 12, 0, 0));
 
-      // Check for conflicts
+      // Check for conflicts - use date range to match same calendar date regardless of time component
+      const startOfDay = new Date(Date.UTC(parsedDate.getUTCFullYear(), parsedDate.getUTCMonth(), parsedDate.getUTCDate(), 0, 0, 0, 0));
+      const endOfDay = new Date(Date.UTC(parsedDate.getUTCFullYear(), parsedDate.getUTCMonth(), parsedDate.getUTCDate(), 23, 59, 59, 999));
+      
       const existingAppointment = await Appointment.findOne({
         _id: { $ne: appointment._id },
         doctorName: appointment.doctorName,
-        appointmentDate: parsedDate,
+        appointmentDate: {
+          $gte: startOfDay,
+          $lte: endOfDay
+        },
         appointmentTime: timeToUse,
         status: { $in: ["scheduled", "confirmed", "reschedule_pending"] },
       });

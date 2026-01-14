@@ -96,3 +96,4 @@ settingsSchema.statics.updateSettings = async function(newSettings) {
 export default mongoose.model('Settings', settingsSchema);
 
 
+

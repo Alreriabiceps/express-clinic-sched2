@@ -1,6 +1,7 @@
 import express from 'express';
 import { body, validationResult } from 'express-validator';
 import PatientUser from '../models/PatientUser.js';
+import Patient from '../models/Patient.js';
 import {
   authenticatePatient,
   generatePatientToken,
@@ -227,9 +228,23 @@ router.put('/profile', authenticatePatient, [
       });
     }
 
+    // Get the current patient user to check for email changes
+    const currentPatientUser = await PatientUser.findById(req.patient.id);
+    if (!currentPatientUser) {
+      return res.status(404).json({
+        success: false,
+        message: 'Patient not found'
+      });
+    }
+
+    const oldEmail = currentPatientUser.email;
     const updates = req.body;
     delete updates.password; // Don't allow password updates through this endpoint
 
+    // Check if email is being updated
+    const emailChanged = updates.email && updates.email.toLowerCase() !== oldEmail?.toLowerCase();
+
+    // Update patient user
     const patientUser = await PatientUser.findByIdAndUpdate(
       req.patient.id,
       updates,
@@ -241,6 +256,21 @@ router.put('/profile', authenticatePatient, [
         success: false,
         message: 'Patient not found'
       });
+    }
+
+    // If email changed and patient has a linked medical record, update it
+    if (emailChanged && patientUser.patientRecord) {
+      try {
+        await Patient.findByIdAndUpdate(
+          patientUser.patientRecord,
+          { 'contactInfo.email': patientUser.email },
+          { runValidators: true }
+        );
+        console.log(`Updated email in Patient record ${patientUser.patientRecord} from ${oldEmail} to ${patientUser.email}`);
+      } catch (updateError) {
+        console.error('Error updating Patient record email:', updateError);
+        // Don't fail the request if Patient record update fails, but log it
+      }
     }
 
     res.json({
