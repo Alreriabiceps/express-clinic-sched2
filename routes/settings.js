@@ -4,6 +4,7 @@ import { authenticatePatient } from '../middleware/patientAuth.js';
 import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
 import PatientUser from '../models/PatientUser.js';
+import Settings from '../models/Settings.js';
 
 const router = express.Router();
 
@@ -56,41 +57,19 @@ const authenticateAny = async (req, res, next) => {
   }
 };
 
-// In-memory store for clinic settings (can be replaced with database later)
-let clinicSettings = {
-  clinicName: 'VM Mother and Child Clinic',
-  obgyneDoctor: {
-    name: 'Dr. Maria Sarah L. Manaloto',
-    hours: {
-      monday: { enabled: true, start: '08:00', end: '12:00' },
-      tuesday: { enabled: false, start: '', end: '' },
-      wednesday: { enabled: true, start: '09:00', end: '14:00' },
-      thursday: { enabled: false, start: '', end: '' },
-      friday: { enabled: true, start: '13:00', end: '17:00' },
-      saturday: { enabled: false, start: '', end: '' },
-      sunday: { enabled: false, start: '', end: '' }
-    }
-  },
-  pediatrician: {
-    name: 'Dr. Shara Laine S. Vino',
-    hours: {
-      monday: { enabled: true, start: '13:00', end: '17:00' },
-      tuesday: { enabled: true, start: '13:00', end: '17:00' },
-      wednesday: { enabled: false, start: '', end: '' },
-      thursday: { enabled: true, start: '08:00', end: '12:00' },
-      friday: { enabled: false, start: '', end: '' },
-      saturday: { enabled: false, start: '', end: '' },
-      sunday: { enabled: false, start: '', end: '' }
-    }
-  }
-};
-
 // Get clinic settings (accessible to both patients and staff)
 router.get('/clinic', authenticateAny, async (req, res) => {
   try {
+    // Get settings from database
+    const settings = await Settings.getSettings();
+    
     res.json({
       success: true,
-      data: clinicSettings
+      data: {
+        clinicName: settings.clinicName,
+        obgyneDoctor: settings.obgyneDoctor,
+        pediatrician: settings.pediatrician
+      }
     });
   } catch (error) {
     console.error('Error fetching clinic settings:', error);
@@ -107,28 +86,89 @@ router.put('/clinic', authenticateToken, requireRole(['admin']), async (req, res
   try {
     const { clinicName, obgyneDoctor, pediatrician } = req.body;
 
-    if (clinicName) {
-      clinicSettings.clinicName = clinicName;
+    // Get current settings from database
+    let settings = await Settings.findOne();
+    
+    if (!settings) {
+      // Create new settings if none exist
+      settings = new Settings({
+        clinicName: clinicName || 'VM Mother and Child Clinic',
+        obgyneDoctor: obgyneDoctor || {
+          name: 'Dr. Maria Sarah L. Manaloto',
+          hours: {
+            monday: { start: '08:00', end: '12:00', enabled: true },
+            tuesday: { start: '', end: '', enabled: false },
+            wednesday: { start: '09:00', end: '14:00', enabled: true },
+            thursday: { start: '', end: '', enabled: false },
+            friday: { start: '13:00', end: '17:00', enabled: true },
+            saturday: { start: '', end: '', enabled: false },
+            sunday: { start: '', end: '', enabled: false }
+          }
+        },
+        pediatrician: pediatrician || {
+          name: 'Dr. Shara Laine S. Vino',
+          hours: {
+            monday: { start: '13:00', end: '17:00', enabled: true },
+            tuesday: { start: '13:00', end: '17:00', enabled: true },
+            wednesday: { start: '', end: '', enabled: false },
+            thursday: { start: '08:00', end: '12:00', enabled: true },
+            friday: { start: '', end: '', enabled: false },
+            saturday: { start: '', end: '', enabled: false },
+            sunday: { start: '', end: '', enabled: false }
+          }
+        }
+      });
+    } else {
+      // Update existing settings
+      if (clinicName) {
+        settings.clinicName = clinicName;
+      }
+
+      if (obgyneDoctor) {
+        if (obgyneDoctor.name) {
+          settings.obgyneDoctor.name = obgyneDoctor.name;
+        }
+        if (obgyneDoctor.hours) {
+          // Deep merge hours to preserve all day settings
+          Object.keys(obgyneDoctor.hours).forEach(day => {
+            if (obgyneDoctor.hours[day]) {
+              settings.obgyneDoctor.hours[day] = {
+                ...settings.obgyneDoctor.hours[day],
+                ...obgyneDoctor.hours[day]
+              };
+            }
+          });
+        }
+      }
+
+      if (pediatrician) {
+        if (pediatrician.name) {
+          settings.pediatrician.name = pediatrician.name;
+        }
+        if (pediatrician.hours) {
+          // Deep merge hours to preserve all day settings
+          Object.keys(pediatrician.hours).forEach(day => {
+            if (pediatrician.hours[day]) {
+              settings.pediatrician.hours[day] = {
+                ...settings.pediatrician.hours[day],
+                ...pediatrician.hours[day]
+              };
+            }
+          });
+        }
+      }
     }
 
-    if (obgyneDoctor) {
-      clinicSettings.obgyneDoctor = {
-        ...clinicSettings.obgyneDoctor,
-        ...obgyneDoctor
-      };
-    }
-
-    if (pediatrician) {
-      clinicSettings.pediatrician = {
-        ...clinicSettings.pediatrician,
-        ...pediatrician
-      };
-    }
+    await settings.save();
 
     res.json({
       success: true,
       message: 'Clinic settings updated successfully',
-      data: clinicSettings
+      data: {
+        clinicName: settings.clinicName,
+        obgyneDoctor: settings.obgyneDoctor,
+        pediatrician: settings.pediatrician
+      }
     });
   } catch (error) {
     console.error('Error updating clinic settings:', error);

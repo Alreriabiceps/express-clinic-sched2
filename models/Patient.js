@@ -282,6 +282,19 @@ const patientSchema = new mongoose.Schema({
     default: 'New'
   },
   
+  // No-show tracking and appointment locking
+  noShowCount: {
+    type: Number,
+    default: 0
+  },
+  appointmentLocked: {
+    type: Boolean,
+    default: false
+  },
+  lastNoShowAt: {
+    type: Date
+  },
+  
   notes: [{
     text: { type: String, trim: true },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },

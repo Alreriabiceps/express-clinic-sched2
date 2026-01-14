@@ -144,13 +144,15 @@ router.get('/slots', [
     const startOfDay = new Date(requestedDate.getFullYear(), requestedDate.getMonth(), requestedDate.getDate());
     const endOfDay = new Date(requestedDate.getFullYear(), requestedDate.getMonth(), requestedDate.getDate() + 1);
 
+    // Only count confirmed appointments as booked
+    // Scheduled appointments are still available for booking (first-come-first-confirmed)
     const existingAppointments = await Appointment.find({
       doctorName,
       appointmentDate: {
         $gte: startOfDay,
         $lt: endOfDay
       },
-      status: { $in: ['scheduled', 'confirmed'] }
+      status: 'confirmed' // Only confirmed appointments block the slot
     });
 
     const bookedSlots = existingAppointments.map(apt => apt.appointmentTime);
@@ -231,13 +233,14 @@ router.get('/summary', [
           const startOfDay = new Date(currentDate.getFullYear(), currentDate.getMonth(), currentDate.getDate());
           const endOfDay = new Date(currentDate.getFullYear(), currentDate.getMonth(), currentDate.getDate() + 1);
 
+          // Only count confirmed appointments as booked
           const existingAppointments = await Appointment.find({
             doctorName: doctor,
             appointmentDate: {
               $gte: startOfDay,
               $lt: endOfDay
             },
-            status: { $in: ['scheduled', 'confirmed'] }
+            status: 'confirmed' // Only confirmed appointments block the slot
           });
 
           const bookedCount = existingAppointments.length;
@@ -304,7 +307,7 @@ router.get('/check-slot', [
     const { doctorName, date, time } = req.query;
     const requestedDate = new Date(date);
 
-    // Check if appointment already exists
+    // Check if appointment is already confirmed (scheduled ones don't block)
     const existingAppointment = await Appointment.findOne({
       doctorName,
       appointmentDate: {
@@ -312,7 +315,7 @@ router.get('/check-slot', [
         $lt: new Date(requestedDate.getFullYear(), requestedDate.getMonth(), requestedDate.getDate() + 1)
       },
       appointmentTime: time,
-      status: { $in: ['scheduled', 'confirmed'] }
+      status: 'confirmed' // Only confirmed appointments block the slot
     });
 
     const isAvailable = !existingAppointment;

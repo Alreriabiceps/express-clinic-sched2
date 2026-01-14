@@ -8,7 +8,8 @@
     "start": "node app.js",
     "dev": "nodemon app.js",
     "test": "jest",
-    "create-admin": "node scripts/createAdmin.js"
+    "create-admin": "node scripts/createAdmin.js",
+    "create-locked-patient": "node scripts/createLockedPatient.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
