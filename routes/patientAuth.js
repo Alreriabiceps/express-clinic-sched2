@@ -216,7 +216,15 @@ router.put('/profile', authenticatePatient, [
   body('firstName').optional().trim().notEmpty(),
   body('lastName').optional().trim().notEmpty(),
   body('phoneNumber').optional().trim().notEmpty(),
-  body('email').optional().isEmail().normalizeEmail()
+  body('email').optional().isEmail().normalizeEmail(),
+  body('occupation').optional().trim(),
+  body('civilStatus').optional().isIn(['Single', 'Married', 'Divorced', 'Widowed']),
+  body('religion').optional().trim(),
+  body('referredBy').optional().trim(),
+  body('nameOfMother').optional().trim(),
+  body('nameOfFather').optional().trim(),
+  body('birthWeight').optional().trim(),
+  body('birthLength').optional().trim()
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -258,17 +266,133 @@ router.put('/profile', authenticatePatient, [
       });
     }
 
-    // If email changed and patient has a linked medical record, update it
-    if (emailChanged && patientUser.patientRecord) {
+    // Sync updates to Patient medical record if linked
+    if (patientUser.patientRecord) {
       try {
-        await Patient.findByIdAndUpdate(
-          patientUser.patientRecord,
-          { 'contactInfo.email': patientUser.email },
-          { runValidators: true }
-        );
-        console.log(`Updated email in Patient record ${patientUser.patientRecord} from ${oldEmail} to ${patientUser.email}`);
+        const patientRecord = await Patient.findById(patientUser.patientRecord);
+        if (patientRecord) {
+          const patientUpdates = {};
+          
+          // Update email in contactInfo
+          if (emailChanged) {
+            patientUpdates['contactInfo.email'] = patientUser.email;
+          }
+          
+          // Update emergency contact
+          if (updates.emergencyContact || patientUser.emergencyContact) {
+            const ec = patientUser.emergencyContact || {};
+            patientUpdates['contactInfo.emergencyContact.name'] = ec.name || '';
+            patientUpdates['contactInfo.emergencyContact.relationship'] = ec.relationship || '';
+            patientUpdates['contactInfo.emergencyContact.phone'] = ec.phoneNumber || '';
+          }
+          
+          // Convert address object to string format
+          if (updates.address) {
+            const addressParts = [];
+            const addr = patientUser.address || {};
+            if (addr.street) addressParts.push(addr.street);
+            if (addr.city) addressParts.push(addr.city);
+            if (addr.province) addressParts.push(addr.province);
+            if (addr.zipCode) addressParts.push(addr.zipCode);
+            const addressString = addressParts.join(', ');
+            
+            if (patientRecord.patientType === 'ob-gyne') {
+              patientUpdates['obGyneRecord.address'] = addressString;
+            } else if (patientRecord.patientType === 'pediatric') {
+              patientUpdates['pediatricRecord.address'] = addressString;
+            }
+          }
+          
+          // Update contact number
+          if (updates.phoneNumber) {
+            if (patientRecord.patientType === 'ob-gyne') {
+              patientUpdates['obGyneRecord.contactNumber'] = patientUser.phoneNumber;
+            } else if (patientRecord.patientType === 'pediatric') {
+              patientUpdates['pediatricRecord.contactNumber'] = patientUser.phoneNumber;
+            }
+          }
+          
+          // Update birthDate and calculate age (always recalculate to ensure it's current)
+          const birthDate = patientUser.dateOfBirth;
+          if (birthDate) {
+            // Calculate age
+            const today = new Date();
+            const birth = new Date(birthDate);
+            let age = today.getFullYear() - birth.getFullYear();
+            const monthDiff = today.getMonth() - birth.getMonth();
+            if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birth.getDate())) {
+              age--;
+            }
+            
+            if (patientRecord.patientType === 'ob-gyne') {
+              // Always update birthDate and age to keep them in sync
+              patientUpdates['obGyneRecord.birthDate'] = birthDate;
+              patientUpdates['obGyneRecord.age'] = age;
+            } else if (patientRecord.patientType === 'pediatric') {
+              patientUpdates['pediatricRecord.birthDate'] = birthDate;
+              patientUpdates['pediatricRecord.age'] = age.toString();
+            }
+          }
+          
+          // Update patient name (firstName + lastName)
+          if (updates.firstName || updates.lastName) {
+            const fullName = `${patientUser.firstName} ${patientUser.lastName}`.trim();
+            if (patientRecord.patientType === 'ob-gyne') {
+              patientUpdates['obGyneRecord.patientName'] = fullName;
+            } else if (patientRecord.patientType === 'pediatric') {
+              patientUpdates['pediatricRecord.nameOfChildren'] = fullName;
+            }
+          }
+          
+          // OB-GYNE specific fields
+          if (patientRecord.patientType === 'ob-gyne') {
+            if (updates.occupation !== undefined) {
+              patientUpdates['obGyneRecord.occupation'] = patientUser.occupation || '';
+            }
+            if (updates.civilStatus !== undefined) {
+              patientUpdates['obGyneRecord.civilStatus'] = patientUser.civilStatus || '';
+            }
+            if (updates.religion !== undefined) {
+              patientUpdates['obGyneRecord.religion'] = patientUser.religion || '';
+            }
+            if (updates.referredBy !== undefined) {
+              patientUpdates['obGyneRecord.referredBy'] = patientUser.referredBy || '';
+            }
+          }
+          
+          // Pediatric specific fields
+          if (patientRecord.patientType === 'pediatric') {
+            if (updates.nameOfMother !== undefined) {
+              patientUpdates['pediatricRecord.nameOfMother'] = patientUser.nameOfMother || '';
+            }
+            if (updates.nameOfFather !== undefined) {
+              patientUpdates['pediatricRecord.nameOfFather'] = patientUser.nameOfFather || '';
+            }
+            if (updates.birthWeight !== undefined) {
+              patientUpdates['pediatricRecord.birthWeight'] = patientUser.birthWeight || '';
+            }
+            if (updates.birthLength !== undefined) {
+              patientUpdates['pediatricRecord.birthLength'] = patientUser.birthLength || '';
+            }
+            // Update sex from gender
+            if (updates.gender !== undefined) {
+              const genderMap = { 'Male': 'Male', 'Female': 'Female', 'Other': 'Male' }; // Default Other to Male
+              patientUpdates['pediatricRecord.sex'] = genderMap[patientUser.gender] || 'Male';
+            }
+          }
+          
+          // Apply all updates
+          if (Object.keys(patientUpdates).length > 0) {
+            await Patient.findByIdAndUpdate(
+              patientUser.patientRecord,
+              { $set: patientUpdates },
+              { runValidators: true }
+            );
+            console.log(`Updated Patient record ${patientUser.patientRecord} with fields:`, Object.keys(patientUpdates));
+          }
+        }
       } catch (updateError) {
-        console.error('Error updating Patient record email:', updateError);
+        console.error('Error updating Patient record:', updateError);
         // Don't fail the request if Patient record update fails, but log it
       }
     }

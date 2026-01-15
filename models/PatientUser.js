@@ -49,6 +49,16 @@ const patientUserSchema = new mongoose.Schema({
     relationship: String,
     phoneNumber: String
   },
+  // OB-GYNE specific fields
+  occupation: { type: String, trim: true },
+  civilStatus: { type: String, enum: ['Single', 'Married', 'Divorced', 'Widowed'], trim: true },
+  religion: { type: String, trim: true },
+  referredBy: { type: String, trim: true },
+  // Pediatric specific fields
+  nameOfMother: { type: String, trim: true },
+  nameOfFather: { type: String, trim: true },
+  birthWeight: { type: String, trim: true },
+  birthLength: { type: String, trim: true },
   consent: {
     type: Boolean,
     required: true,

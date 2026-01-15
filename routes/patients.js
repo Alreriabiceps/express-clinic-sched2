@@ -644,6 +644,36 @@ router.get('/status/:status', authenticateToken, async (req, res) => {
   }
 });
 
+// Lock appointment booking for a patient (admin/staff)
+router.patch('/:id/lock-appointments', authenticateToken, requireRole(['admin', 'staff']), async (req, res) => {
+  try {
+    const patient = await Patient.findById(req.params.id);
+
+    if (!patient) {
+      return res.status(404).json({ 
+        success: false,
+        message: 'Patient not found' 
+      });
+    }
+
+    patient.appointmentLocked = true;
+    await patient.save();
+
+    res.json({
+      success: true,
+      message: 'Appointment booking locked for patient',
+      data: { patient }
+    });
+  } catch (error) {
+    console.error('Error locking appointments:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Error locking appointments', 
+      error: error.message 
+    });
+  }
+});
+
 // Unlock appointment booking for a patient (admin/staff)
 router.patch('/:id/unlock-appointments', authenticateToken, requireRole(['admin', 'staff']), async (req, res) => {
   try {
