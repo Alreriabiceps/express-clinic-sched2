@@ -182,6 +182,47 @@ router.post('/login', [
   }
 });
 
+// Patient refresh token endpoint
+router.post('/refresh', async (req, res) => {
+  try {
+    const { refreshToken } = req.body;
+
+    if (!refreshToken) {
+      return res.status(401).json({
+        success: false,
+        message: 'Refresh token required'
+      });
+    }
+
+    const decoded = verifyPatientRefreshToken(refreshToken);
+    const patientUser = await PatientUser.findById(decoded.id);
+
+    if (!patientUser || !patientUser.isActive) {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid refresh token'
+      });
+    }
+
+    const newToken = generatePatientToken(patientUser);
+    const newRefreshToken = generatePatientRefreshToken(patientUser);
+
+    res.json({
+      success: true,
+      data: {
+        token: newToken,
+        refreshToken: newRefreshToken
+      }
+    });
+  } catch (error) {
+    console.error('Patient refresh token error:', error);
+    res.status(401).json({
+      success: false,
+      message: 'Invalid refresh token'
+    });
+  }
+});
+
 // Patient profile endpoint
 router.get('/profile', authenticatePatient, async (req, res) => {
   try {
