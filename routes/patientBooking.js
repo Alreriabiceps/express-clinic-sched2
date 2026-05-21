@@ -7,6 +7,9 @@ import Settings from '../models/Settings.js';
 import { authenticatePatient } from '../middleware/patientAuth.js';
 
 const router = express.Router();
+const BOOKING_DISABLED_MESSAGE = 'Online appointment booking is temporarily unavailable due to a high volume of patients. Please contact the clinic for assistance.';
+
+const isBookingEnabled = (settings) => settings.bookingEnabled !== false;
 
 // Get available dates for a specific doctor
 router.get('/available-dates', async (req, res) => {
@@ -24,6 +27,17 @@ router.get('/available-dates', async (req, res) => {
 
     // Fetch settings for dynamic doctor schedules
     const settings = await Settings.getSettings();
+
+    if (!isBookingEnabled(settings)) {
+      return res.json({
+        success: true,
+        data: {
+          bookingEnabled: false,
+          availableDates: [],
+          message: BOOKING_DISABLED_MESSAGE
+        }
+      });
+    }
     
     // Map settings to doctorSchedules format
     // Using simple IDs 'doc_1' and 'doc_2' for now to match frontend expectations
@@ -102,6 +116,7 @@ router.get('/available-dates', async (req, res) => {
     res.json({
       success: true,
       data: {
+        bookingEnabled: true,
         availableDates,
         doctorInfo: {
           name: doctor.name,
@@ -136,6 +151,19 @@ router.get('/available-slots', async (req, res) => {
 
     // Fetch settings for dynamic doctor schedules
     const settings = await Settings.getSettings();
+
+    if (!isBookingEnabled(settings)) {
+      return res.json({
+        success: true,
+        data: {
+          bookingEnabled: false,
+          slots: [],
+          availableSlots: [],
+          slotsWithCounts: [],
+          message: BOOKING_DISABLED_MESSAGE
+        }
+      });
+    }
     
     // Map settings to doctorSchedules format
     const doctorSchedules = {
@@ -246,6 +274,7 @@ router.get('/available-slots', async (req, res) => {
     res.json({
       success: true,
       data: {
+        bookingEnabled: true,
         slots: availableSlots, // Keep backward compatibility
         slotsWithCounts: slotsWithCounts, // New format with counts
         doctorInfo: {
@@ -314,7 +343,11 @@ router.get('/doctors', async (req, res) => {
 
     res.json({
       success: true,
-      data: { doctors }
+      data: {
+        bookingEnabled: isBookingEnabled(settings),
+        message: isBookingEnabled(settings) ? undefined : BOOKING_DISABLED_MESSAGE,
+        doctors
+      }
     });
 
   } catch (error) {
@@ -355,6 +388,17 @@ router.post('/book-appointment', authenticatePatient, [
       patientType,
       dependentInfo
     } = req.body;
+
+    const settings = await Settings.getSettings();
+    if (!isBookingEnabled(settings)) {
+      return res.status(503).json({
+        success: false,
+        message: BOOKING_DISABLED_MESSAGE,
+        data: {
+          bookingEnabled: false
+        }
+      });
+    }
 
     // Get patient user info from authenticated request
     const patientUser = await PatientUser.findById(req.patient.id);
@@ -405,9 +449,6 @@ router.post('/book-appointment', authenticatePatient, [
     // Generate appointment ID
     const appointmentCount = await Appointment.countDocuments();
     const appointmentId = `APT${String(appointmentCount + 1).padStart(6, '0')}`;
-
-    // Fetch settings for dynamic doctor names
-    const settings = await Settings.getSettings();
 
     // Map specialty to doctorType and serviceType
     const doctorSchedules = {

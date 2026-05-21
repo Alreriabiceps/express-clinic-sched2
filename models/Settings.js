@@ -7,6 +7,10 @@ const settingsSchema = new mongoose.Schema(
       required: true,
       default: 'VM Mother and Child Clinic'
     },
+    bookingEnabled: {
+      type: Boolean,
+      default: true
+    },
     obgyneDoctor: {
       name: {
         type: String,
@@ -52,6 +56,7 @@ settingsSchema.statics.getSettings = async function() {
     // Create default settings if none exist
     settings = new this({
       clinicName: 'VM Mother and Child Clinic',
+      bookingEnabled: true,
       obgyneDoctor: {
         name: 'Dr. Maria Sarah L. Manaloto',
         hours: {
@@ -77,6 +82,9 @@ settingsSchema.statics.getSettings = async function() {
         }
       }
     });
+    await settings.save();
+  } else if (settings.bookingEnabled === undefined) {
+    settings.bookingEnabled = true;
     await settings.save();
   }
   return settings;

@@ -1,6 +1,5 @@
 import express from 'express';
 import { authenticateToken, requireRole } from '../middleware/auth.js';
-import { authenticatePatient } from '../middleware/patientAuth.js';
 import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
 import PatientUser from '../models/PatientUser.js';
@@ -67,6 +66,7 @@ router.get('/clinic', authenticateAny, async (req, res) => {
       success: true,
       data: {
         clinicName: settings.clinicName,
+        bookingEnabled: settings.bookingEnabled !== false,
         obgyneDoctor: settings.obgyneDoctor,
         pediatrician: settings.pediatrician
       }
@@ -84,7 +84,7 @@ router.get('/clinic', authenticateAny, async (req, res) => {
 // Update clinic settings (admin only)
 router.put('/clinic', authenticateToken, requireRole(['admin']), async (req, res) => {
   try {
-    const { clinicName, obgyneDoctor, pediatrician } = req.body;
+    const { clinicName, bookingEnabled, obgyneDoctor, pediatrician } = req.body;
 
     // Get current settings from database
     let settings = await Settings.findOne();
@@ -93,6 +93,7 @@ router.put('/clinic', authenticateToken, requireRole(['admin']), async (req, res
       // Create new settings if none exist
       settings = new Settings({
         clinicName: clinicName || 'VM Mother and Child Clinic',
+        bookingEnabled: typeof bookingEnabled === 'boolean' ? bookingEnabled : true,
         obgyneDoctor: obgyneDoctor || {
           name: 'Dr. Maria Sarah L. Manaloto',
           hours: {
@@ -122,6 +123,10 @@ router.put('/clinic', authenticateToken, requireRole(['admin']), async (req, res
       // Update existing settings
       if (clinicName) {
         settings.clinicName = clinicName;
+      }
+
+      if (typeof bookingEnabled === 'boolean') {
+        settings.bookingEnabled = bookingEnabled;
       }
 
       if (obgyneDoctor) {
@@ -166,6 +171,7 @@ router.put('/clinic', authenticateToken, requireRole(['admin']), async (req, res
       message: 'Clinic settings updated successfully',
       data: {
         clinicName: settings.clinicName,
+        bookingEnabled: settings.bookingEnabled !== false,
         obgyneDoctor: settings.obgyneDoctor,
         pediatrician: settings.pediatrician
       }
