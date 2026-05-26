@@ -10,6 +10,129 @@ const router = express.Router();
 const BOOKING_DISABLED_MESSAGE = 'Online appointment booking is temporarily unavailable due to a high volume of patients. Please contact the clinic for assistance.';
 
 const isBookingEnabled = (settings) => settings.bookingEnabled !== false;
+const dayKeys = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+const dayLabels = {
+  monday: 'Monday',
+  tuesday: 'Tuesday',
+  wednesday: 'Wednesday',
+  thursday: 'Thursday',
+  friday: 'Friday',
+  saturday: 'Saturday',
+  sunday: 'Sunday'
+};
+
+const defaultDoctorSettings = {
+  obgyneDoctor: {
+    name: 'Dr. Maria Sarah L. Manaloto',
+    hours: {
+      monday: { start: '08:00', end: '12:00', enabled: true },
+      tuesday: { start: '', end: '', enabled: false },
+      wednesday: { start: '09:00', end: '14:00', enabled: true },
+      thursday: { start: '', end: '', enabled: false },
+      friday: { start: '13:00', end: '17:00', enabled: true },
+      saturday: { start: '', end: '', enabled: false },
+      sunday: { start: '', end: '', enabled: false }
+    }
+  },
+  pediatrician: {
+    name: 'Dr. Shara Laine S. Vino',
+    hours: {
+      monday: { start: '13:00', end: '17:00', enabled: true },
+      tuesday: { start: '13:00', end: '17:00', enabled: true },
+      wednesday: { start: '', end: '', enabled: false },
+      thursday: { start: '08:00', end: '12:00', enabled: true },
+      friday: { start: '', end: '', enabled: false },
+      saturday: { start: '', end: '', enabled: false },
+      sunday: { start: '', end: '', enabled: false }
+    }
+  }
+};
+
+const normalizeHours = (hours = {}, fallbackHours = {}) => {
+  return dayKeys.reduce((acc, day) => {
+    const fallback = fallbackHours[day] || { start: '', end: '', enabled: false };
+    const current = hours?.[day] || {};
+    acc[day] = {
+      start: current.start ?? fallback.start ?? '',
+      end: current.end ?? fallback.end ?? '',
+      enabled: Boolean(current.enabled ?? fallback.enabled)
+    };
+    return acc;
+  }, {});
+};
+
+const getDoctorSchedules = (settings) => {
+  const obgyneHours = normalizeHours(
+    settings?.obgyneDoctor?.hours,
+    defaultDoctorSettings.obgyneDoctor.hours
+  );
+  const pediatricianHours = normalizeHours(
+    settings?.pediatrician?.hours,
+    defaultDoctorSettings.pediatrician.hours
+  );
+
+  return {
+    doc_1: {
+      name: settings?.obgyneDoctor?.name || defaultDoctorSettings.obgyneDoctor.name,
+      specialty: 'ob-gyne',
+      displaySpecialty: 'OB-GYNE',
+      description: 'Obstetrics and Gynecology specialist',
+      doctorType: 'ob-gyne',
+      defaultServiceType: 'PRENATAL_CHECKUP',
+      hours: obgyneHours,
+      schedule: buildSchedule(obgyneHours)
+    },
+    doc_2: {
+      name: settings?.pediatrician?.name || defaultDoctorSettings.pediatrician.name,
+      specialty: 'pediatric',
+      displaySpecialty: 'Pediatric',
+      description: 'Pediatrics specialist for children and infants',
+      doctorType: 'pediatric',
+      defaultServiceType: 'WELL_CHILD_CHECKUP',
+      hours: pediatricianHours,
+      schedule: buildSchedule(pediatricianHours)
+    }
+  };
+};
+
+const buildSchedule = (hours) => {
+  return dayKeys.reduce((acc, day) => {
+    const dayHours = hours[day];
+    acc[dayLabels[day]] = dayHours?.enabled && dayHours.start && dayHours.end ? dayHours : null;
+    return acc;
+  }, {});
+};
+
+const formatSchedule = (hours) => {
+  return dayKeys.reduce((schedule, day) => {
+    const dayHours = hours[day];
+    if (dayHours?.enabled && dayHours.start && dayHours.end) {
+      schedule[dayLabels[day]] = `${dayHours.start} - ${dayHours.end}`;
+    }
+    return schedule;
+  }, {});
+};
+
+const getWorkingDays = (hours) => {
+  return dayKeys
+    .filter(day => hours[day]?.enabled && hours[day].start && hours[day].end)
+    .map(day => dayLabels[day]);
+};
+
+const formatLocalDate = (date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const timeToMinutes = (timeString) => {
+  const [time, period] = timeString.split(' ');
+  const [rawHours, rawMinutes] = time.split(':').map(Number);
+  let hours = rawHours % 12;
+  if (period?.toUpperCase() === 'PM') hours += 12;
+  return hours * 60 + (rawMinutes || 0);
+};
 
 // Get available dates for a specific doctor
 router.get('/available-dates', async (req, res) => {
@@ -39,37 +162,7 @@ router.get('/available-dates', async (req, res) => {
       });
     }
     
-    // Map settings to doctorSchedules format
-    // Using simple IDs 'doc_1' and 'doc_2' for now to match frontend expectations
-    // Ideally frontend should use real IDs or names
-    const doctorSchedules = {
-      'doc_1': {
-        name: settings.obgyneDoctor.name,
-        specialty: 'ob-gyne',
-        schedule: {
-          'Monday': settings.obgyneDoctor.hours.monday.enabled ? settings.obgyneDoctor.hours.monday : null,
-          'Tuesday': settings.obgyneDoctor.hours.tuesday.enabled ? settings.obgyneDoctor.hours.tuesday : null,
-          'Wednesday': settings.obgyneDoctor.hours.wednesday.enabled ? settings.obgyneDoctor.hours.wednesday : null,
-          'Thursday': settings.obgyneDoctor.hours.thursday.enabled ? settings.obgyneDoctor.hours.thursday : null,
-          'Friday': settings.obgyneDoctor.hours.friday.enabled ? settings.obgyneDoctor.hours.friday : null,
-          'Saturday': settings.obgyneDoctor.hours.saturday.enabled ? settings.obgyneDoctor.hours.saturday : null,
-          'Sunday': settings.obgyneDoctor.hours.sunday.enabled ? settings.obgyneDoctor.hours.sunday : null,
-        }
-      },
-      'doc_2': {
-        name: settings.pediatrician.name,
-        specialty: 'pediatric',
-        schedule: {
-          'Monday': settings.pediatrician.hours.monday.enabled ? settings.pediatrician.hours.monday : null,
-          'Tuesday': settings.pediatrician.hours.tuesday.enabled ? settings.pediatrician.hours.tuesday : null,
-          'Wednesday': settings.pediatrician.hours.wednesday.enabled ? settings.pediatrician.hours.wednesday : null,
-          'Thursday': settings.pediatrician.hours.thursday.enabled ? settings.pediatrician.hours.thursday : null,
-          'Friday': settings.pediatrician.hours.friday.enabled ? settings.pediatrician.hours.friday : null,
-          'Saturday': settings.pediatrician.hours.saturday.enabled ? settings.pediatrician.hours.saturday : null,
-          'Sunday': settings.pediatrician.hours.sunday.enabled ? settings.pediatrician.hours.sunday : null,
-        }
-      }
-    };
+    const doctorSchedules = getDoctorSchedules(settings);
 
     const doctor = doctorSchedules[doctorId];
     console.log('Found doctor:', doctor ? doctor.name : 'NOT FOUND');
@@ -88,9 +181,9 @@ router.get('/available-dates', async (req, res) => {
     const maxDate = new Date();
     maxDate.setDate(today.getDate() + 90); // 3 months ahead
 
-    // Start from tomorrow
+    // Start from today so same-day booking works when there are remaining slots.
     const checkDate = new Date(today);
-    checkDate.setDate(checkDate.getDate() + 1);
+    checkDate.setHours(0, 0, 0, 0);
 
     while (checkDate <= maxDate) {
       const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -98,11 +191,7 @@ router.get('/available-dates', async (req, res) => {
 
       // Check if doctor works on this day
       if (doctor.schedule[dayOfWeek]) {
-        // Fix timezone issue by using local date formatting
-        const year = checkDate.getFullYear();
-        const month = String(checkDate.getMonth() + 1).padStart(2, '0');
-        const day = String(checkDate.getDate()).padStart(2, '0');
-        const dateStr = `${year}-${month}-${day}`;
+        const dateStr = formatLocalDate(checkDate);
         availableDates.push(dateStr);
         console.log(`Adding available date: ${dateStr} (${dayOfWeek})`);
       }
@@ -165,35 +254,7 @@ router.get('/available-slots', async (req, res) => {
       });
     }
     
-    // Map settings to doctorSchedules format
-    const doctorSchedules = {
-      'doc_1': {
-        name: settings.obgyneDoctor.name,
-        specialty: 'ob-gyne',
-        schedule: {
-          'Monday': settings.obgyneDoctor.hours.monday.enabled ? settings.obgyneDoctor.hours.monday : null,
-          'Tuesday': settings.obgyneDoctor.hours.tuesday.enabled ? settings.obgyneDoctor.hours.tuesday : null,
-          'Wednesday': settings.obgyneDoctor.hours.wednesday.enabled ? settings.obgyneDoctor.hours.wednesday : null,
-          'Thursday': settings.obgyneDoctor.hours.thursday.enabled ? settings.obgyneDoctor.hours.thursday : null,
-          'Friday': settings.obgyneDoctor.hours.friday.enabled ? settings.obgyneDoctor.hours.friday : null,
-          'Saturday': settings.obgyneDoctor.hours.saturday.enabled ? settings.obgyneDoctor.hours.saturday : null,
-          'Sunday': settings.obgyneDoctor.hours.sunday.enabled ? settings.obgyneDoctor.hours.sunday : null,
-        }
-      },
-      'doc_2': {
-        name: settings.pediatrician.name,
-        specialty: 'pediatric',
-        schedule: {
-          'Monday': settings.pediatrician.hours.monday.enabled ? settings.pediatrician.hours.monday : null,
-          'Tuesday': settings.pediatrician.hours.tuesday.enabled ? settings.pediatrician.hours.tuesday : null,
-          'Wednesday': settings.pediatrician.hours.wednesday.enabled ? settings.pediatrician.hours.wednesday : null,
-          'Thursday': settings.pediatrician.hours.thursday.enabled ? settings.pediatrician.hours.thursday : null,
-          'Friday': settings.pediatrician.hours.friday.enabled ? settings.pediatrician.hours.friday : null,
-          'Saturday': settings.pediatrician.hours.saturday.enabled ? settings.pediatrician.hours.saturday : null,
-          'Sunday': settings.pediatrician.hours.sunday.enabled ? settings.pediatrician.hours.sunday : null,
-        }
-      }
-    };
+    const doctorSchedules = getDoctorSchedules(settings);
 
     const doctor = doctorSchedules[doctorId];
     if (!doctor) {
@@ -225,7 +286,12 @@ router.get('/available-slots', async (req, res) => {
     // Generate time slots (30-minute intervals)
     const { start, end } = doctor.schedule[dayOfWeek];
     console.log('Generating slots for:', { start, end, dayOfWeek });
-    const timeSlots = generateTimeSlots(start, end, 30);
+    let timeSlots = generateTimeSlots(start, end, 30);
+    const now = new Date();
+    if (date === formatLocalDate(now)) {
+      const currentMinutes = now.getHours() * 60 + now.getMinutes();
+      timeSlots = timeSlots.filter(slot => timeToMinutes(slot) > currentMinutes);
+    }
     console.log('Generated time slots:', timeSlots);
 
     // Get existing CONFIRMED appointments for this date and doctor
@@ -299,47 +365,17 @@ router.get('/doctors', async (req, res) => {
   try {
     const settings = await Settings.getSettings();
 
-    // Helper to format schedule string
-    const formatSchedule = (hours) => {
-      const schedule = {};
-      const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
-      days.forEach(day => {
-        if (hours[day] && hours[day].enabled) {
-          const dayName = day.charAt(0).toUpperCase() + day.slice(1);
-          schedule[dayName] = `${hours[day].start} - ${hours[day].end}`;
-        }
-      });
-      return schedule;
-    };
+    const doctorSchedules = getDoctorSchedules(settings);
 
-    // Helper to get working days
-    const getWorkingDays = (hours) => {
-      const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
-      return days
-        .filter(day => hours[day] && hours[day].enabled)
-        .map(day => day.charAt(0).toUpperCase() + day.slice(1));
-    };
-
-    const doctors = [
-      {
-        _id: 'doc_1',
-        name: settings.obgyneDoctor.name,
-        specialty: 'OB-GYNE',
-        specialtyCode: 'ob-gyne',
-        description: 'Obstetrics and Gynecology specialist',
-        schedule: formatSchedule(settings.obgyneDoctor.hours),
-        workingDays: getWorkingDays(settings.obgyneDoctor.hours)
-      },
-      {
-        _id: 'doc_2',
-        name: settings.pediatrician.name,
-        specialty: 'Pediatric',
-        specialtyCode: 'pediatric',
-        description: 'Pediatrics specialist for children and infants',
-        schedule: formatSchedule(settings.pediatrician.hours),
-        workingDays: getWorkingDays(settings.pediatrician.hours)
-      }
-    ];
+    const doctors = Object.entries(doctorSchedules).map(([id, doctor]) => ({
+      _id: id,
+      name: doctor.name,
+      specialty: doctor.displaySpecialty,
+      specialtyCode: doctor.specialty,
+      description: doctor.description,
+      schedule: formatSchedule(doctor.hours),
+      workingDays: getWorkingDays(doctor.hours)
+    }));
 
     res.json({
       success: true,
@@ -450,24 +486,57 @@ router.post('/book-appointment', authenticatePatient, [
     const appointmentCount = await Appointment.countDocuments();
     const appointmentId = `APT${String(appointmentCount + 1).padStart(6, '0')}`;
 
-    // Map specialty to doctorType and serviceType
-    const doctorSchedules = {
-      [settings.obgyneDoctor.name]: {
-        doctorType: 'ob-gyne',
-        defaultServiceType: 'PRENATAL_CHECKUP'
-      },
-      [settings.pediatrician.name]: {
-        doctorType: 'pediatric',
-        defaultServiceType: 'WELL_CHILD_CHECKUP'
-      }
-    };
-
-    const doctorInfo = doctorSchedules[doctorName];
+    const doctorInfo = Object.values(getDoctorSchedules(settings)).find(
+      doctor => doctor.name === doctorName
+    );
     if (!doctorInfo) {
       return res.status(400).json({
         success: false,
         message: 'Invalid doctor selected'
       });
+    }
+
+    const requestedDate = new Date(`${appointmentDate}T12:00:00`);
+    const todayDate = new Date();
+    todayDate.setHours(0, 0, 0, 0);
+    const requestedDateOnly = new Date(requestedDate);
+    requestedDateOnly.setHours(0, 0, 0, 0);
+
+    if (requestedDateOnly < todayDate) {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot book appointments in the past'
+      });
+    }
+
+    const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const dayOfWeek = dayNames[requestedDate.getDay()];
+    const daySchedule = doctorInfo.schedule[dayOfWeek];
+
+    if (!daySchedule) {
+      return res.status(400).json({
+        success: false,
+        message: `${doctorInfo.name} is not available on ${dayOfWeek}s`
+      });
+    }
+
+    const validSlots = generateTimeSlots(daySchedule.start, daySchedule.end, 30);
+    if (!validSlots.includes(appointmentTime)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please select an available time slot for this doctor'
+      });
+    }
+
+    if (appointmentDate === formatLocalDate(new Date())) {
+      const now = new Date();
+      const currentMinutes = now.getHours() * 60 + now.getMinutes();
+      if (timeToMinutes(appointmentTime) <= currentMinutes) {
+        return res.status(400).json({
+          success: false,
+          message: 'Please select a future time slot for today'
+        });
+      }
     }
 
     // Find or create patient record linked to PatientUser
