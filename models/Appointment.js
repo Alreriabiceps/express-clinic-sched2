@@ -194,6 +194,12 @@ const appointmentSchema = new mongoose.Schema(
       default: "staff",
     },
 
+    bookingType: {
+      type: String,
+      enum: ["today", "advance"],
+      default: "advance",
+    },
+
     confirmedBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",

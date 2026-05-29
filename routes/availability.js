@@ -10,17 +10,17 @@ const DOCTOR_SCHEDULES = {
   'Dr. Maria Sarah L. Manaloto': {
     specialty: 'ob-gyne',
     schedule: {
-      1: { start: '08:00', end: '12:00', slots: 30 }, // Monday 8AM-12PM, 30min slots
-      3: { start: '09:00', end: '14:00', slots: 30 }, // Wednesday 9AM-2PM
-      5: { start: '13:00', end: '17:00', slots: 30 }  // Friday 1PM-5PM
+      1: { start: '08:00', end: '12:00', slots: 10 }, // Monday 8AM-12PM, 10min slots
+      3: { start: '09:00', end: '14:00', slots: 10 }, // Wednesday 9AM-2PM
+      5: { start: '13:00', end: '17:00', slots: 10 }  // Friday 1PM-5PM
     }
   },
   'Dr. Shara Laine S. Vino': {
     specialty: 'pediatric',
     schedule: {
-      1: { start: '13:00', end: '17:00', slots: 30 }, // Monday 1PM-5PM
-      2: { start: '13:00', end: '17:00', slots: 30 }, // Tuesday 1PM-5PM
-      4: { start: '08:00', end: '12:00', slots: 30 }  // Thursday 8AM-12PM
+      1: { start: '13:00', end: '17:00', slots: 10 }, // Monday 1PM-5PM
+      2: { start: '13:00', end: '17:00', slots: 10 }, // Tuesday 1PM-5PM
+      4: { start: '08:00', end: '12:00', slots: 10 }  // Thursday 8AM-12PM
     }
   }
 };

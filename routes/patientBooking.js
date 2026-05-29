@@ -8,6 +8,7 @@ import { authenticatePatient } from '../middleware/patientAuth.js';
 
 const router = express.Router();
 const BOOKING_DISABLED_MESSAGE = 'Online appointment booking is temporarily unavailable due to a high volume of patients. Please contact the clinic for assistance.';
+const APPOINTMENT_SLOT_INTERVAL_MINUTES = 10;
 
 const isBookingEnabled = (settings) => settings.bookingEnabled !== false;
 const dayKeys = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
@@ -126,6 +127,11 @@ const formatLocalDate = (date) => {
   return `${year}-${month}-${day}`;
 };
 
+const getDateRange = (dateString) => ({
+  $gte: new Date(`${dateString}T00:00:00.000Z`),
+  $lt: new Date(`${dateString}T23:59:59.999Z`)
+});
+
 const timeToMinutes = (timeString) => {
   const [time, period] = timeString.split(' ');
   const [rawHours, rawMinutes] = time.split(':').map(Number);
@@ -227,7 +233,7 @@ router.get('/available-dates', async (req, res) => {
 // Get available time slots for a specific date and doctor
 router.get('/available-slots', async (req, res) => {
   try {
-    const { date, doctorId } = req.query;
+    const { date, doctorId, bookingType } = req.query;
 
     console.log('Available slots request:', { date, doctorId });
 
@@ -283,43 +289,40 @@ router.get('/available-slots', async (req, res) => {
       });
     }
 
-    // Generate time slots (30-minute intervals)
+    // Generate time slots (10-minute intervals)
     const { start, end } = doctor.schedule[dayOfWeek];
     console.log('Generating slots for:', { start, end, dayOfWeek });
-    let timeSlots = generateTimeSlots(start, end, 30);
+    let timeSlots = generateTimeSlots(start, end, APPOINTMENT_SLOT_INTERVAL_MINUTES);
     const now = new Date();
+    const isSameDayBooking = date === formatLocalDate(now) || bookingType === 'today';
     if (date === formatLocalDate(now)) {
       const currentMinutes = now.getHours() * 60 + now.getMinutes();
       timeSlots = timeSlots.filter(slot => timeToMinutes(slot) > currentMinutes);
     }
     console.log('Generated time slots:', timeSlots);
 
-    // Get existing CONFIRMED appointments for this date and doctor
-    // Only confirmed appointments block the slot - scheduled ones are still available for booking
-    const confirmedAppointments = await Appointment.find({
-      appointmentDate: {
-        $gte: new Date(date + 'T00:00:00.000Z'),
-        $lt: new Date(date + 'T23:59:59.999Z')
-      },
+    const blockingStatuses = isSameDayBooking
+      ? ['scheduled', 'confirmed', 'reschedule_pending']
+      : ['confirmed'];
+
+    const blockingAppointments = await Appointment.find({
+      appointmentDate: getDateRange(date),
       doctorName: doctor.name,
-      status: 'confirmed' // Only block if confirmed, not scheduled
+      status: { $in: blockingStatuses }
     });
 
     // Get SCHEDULED appointments to show count of pending bookings
     const scheduledAppointments = await Appointment.find({
-      appointmentDate: {
-        $gte: new Date(date + 'T00:00:00.000Z'),
-        $lt: new Date(date + 'T23:59:59.999Z')
-      },
+      appointmentDate: getDateRange(date),
       doctorName: doctor.name,
       status: 'scheduled' // Count scheduled appointments
     });
 
-    console.log('Existing confirmed appointments:', confirmedAppointments.length);
+    console.log('Existing blocking appointments:', blockingAppointments.length);
     console.log('Existing scheduled appointments:', scheduledAppointments.length);
 
-    // Filter out booked slots (only confirmed ones)
-    const bookedTimes = confirmedAppointments.map(apt => apt.appointmentTime);
+    // Filter out booked slots. Same-day bookings auto-confirm, so scheduled slots also block.
+    const bookedTimes = blockingAppointments.map(apt => apt.appointmentTime);
     const availableSlots = timeSlots.filter(slot => !bookedTimes.includes(slot));
 
     // Count scheduled appointments per time slot
@@ -403,6 +406,7 @@ router.post('/book-appointment', authenticatePatient, [
   body('serviceType').notEmpty().withMessage('Service type is required'),
   body('reasonForVisit').optional().trim(),
   body('patientType').isIn(['self', 'dependent']).withMessage('Patient type must be self or dependent'),
+  body('bookingType').optional().isIn(['today', 'advance']).withMessage('Booking type must be today or advance'),
   body('dependentInfo').optional().isObject()
 ], async (req, res) => {
   try {
@@ -422,6 +426,7 @@ router.post('/book-appointment', authenticatePatient, [
       serviceType,
       reasonForVisit,
       patientType,
+      bookingType,
       dependentInfo
     } = req.body;
 
@@ -443,22 +448,6 @@ router.post('/book-appointment', authenticatePatient, [
       return res.status(404).json({
         success: false,
         message: 'Patient account not found'
-      });
-    }
-
-    // Check if slot is already confirmed by another patient
-    // Allow multiple "scheduled" appointments - they'll compete for confirmation
-    const confirmedAppointment = await Appointment.findOne({
-      appointmentDate: new Date(appointmentDate),
-      appointmentTime,
-      doctorName,
-      status: 'confirmed'
-    });
-
-    if (confirmedAppointment) {
-      return res.status(400).json({
-        success: false,
-        message: 'This time slot has already been confirmed for another patient'
       });
     }
 
@@ -501,11 +490,27 @@ router.post('/book-appointment', authenticatePatient, [
     todayDate.setHours(0, 0, 0, 0);
     const requestedDateOnly = new Date(requestedDate);
     requestedDateOnly.setHours(0, 0, 0, 0);
+    const isSameDayBooking = requestedDateOnly.getTime() === todayDate.getTime();
+    const computedBookingType = isSameDayBooking ? 'today' : 'advance';
 
     if (requestedDateOnly < todayDate) {
       return res.status(400).json({
         success: false,
         message: 'Cannot book appointments in the past'
+      });
+    }
+
+    if (bookingType === 'today' && !isSameDayBooking) {
+      return res.status(400).json({
+        success: false,
+        message: 'Today booking must use today\'s date'
+      });
+    }
+
+    if (bookingType === 'advance' && isSameDayBooking) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please use Today Booking for same-day appointments'
       });
     }
 
@@ -520,7 +525,7 @@ router.post('/book-appointment', authenticatePatient, [
       });
     }
 
-    const validSlots = generateTimeSlots(daySchedule.start, daySchedule.end, 30);
+    const validSlots = generateTimeSlots(daySchedule.start, daySchedule.end, APPOINTMENT_SLOT_INTERVAL_MINUTES);
     if (!validSlots.includes(appointmentTime)) {
       return res.status(400).json({
         success: false,
@@ -539,20 +544,38 @@ router.post('/book-appointment', authenticatePatient, [
       }
     }
 
+    const blockingStatuses = isSameDayBooking
+      ? ['scheduled', 'confirmed', 'reschedule_pending']
+      : ['confirmed'];
+    const existingAppointment = await Appointment.findOne({
+      appointmentDate: getDateRange(appointmentDate),
+      appointmentTime,
+      doctorName,
+      status: { $in: blockingStatuses }
+    });
+
+    if (existingAppointment) {
+      return res.status(400).json({
+        success: false,
+        message: isSameDayBooking
+          ? 'This time slot is already booked'
+          : 'This time slot has already been confirmed for another patient'
+      });
+    }
+
     // Find or create patient record linked to PatientUser
     let patientRecord = await Patient.findOne({
       'contactInfo.email': patientUser.email
     });
 
     if (!patientRecord) {
-      // Create new patient record with status 'New'
       const patientData = {
         patientType: doctorInfo.doctorType,
         contactInfo: {
           email: patientUser.email,
           emergencyContact: patientUser.emergencyContact || {}
         },
-        status: 'New' // Set initial status as 'New' when booking appointment
+        status: isSameDayBooking ? 'Active' : 'New'
       };
 
       if (doctorInfo.doctorType === 'pediatric') {
@@ -627,8 +650,10 @@ router.post('/book-appointment', authenticatePatient, [
       patientUser.patientRecord = patientRecord._id;
       await patientUser.save();
     } else {
-      // Update existing patient record status to 'New' if it was 'Inactive'
-      if (patientRecord.status === 'Inactive') {
+      if (isSameDayBooking && patientRecord.status !== 'Active') {
+        patientRecord.status = 'Active';
+        await patientRecord.save();
+      } else if (!isSameDayBooking && patientRecord.status === 'Inactive') {
         patientRecord.status = 'New';
         await patientRecord.save();
       }
@@ -663,7 +688,8 @@ router.post('/book-appointment', authenticatePatient, [
       patientType,
       dependentInfo: patientType === 'dependent' ? dependentInfo : undefined,
       reasonForVisit: reasonForVisit || 'General consultation',
-      status: 'scheduled',
+      status: isSameDayBooking ? 'confirmed' : 'scheduled',
+      bookingType: computedBookingType,
       bookingSource: 'patient_portal'
     });
 
@@ -1162,7 +1188,7 @@ router.post('/cancel-reschedule/:appointmentId', authenticatePatient, async (req
 });
 
 // Helper function to generate time slots
-function generateTimeSlots(startTime, endTime, intervalMinutes = 30) {
+function generateTimeSlots(startTime, endTime, intervalMinutes = APPOINTMENT_SLOT_INTERVAL_MINUTES) {
   const slots = [];
   const [startHour, startMin] = startTime.split(':').map(Number);
   const [endHour, endMin] = endTime.split(':').map(Number);
