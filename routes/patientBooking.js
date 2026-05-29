@@ -9,6 +9,14 @@ import { authenticatePatient } from '../middleware/patientAuth.js';
 const router = express.Router();
 const BOOKING_DISABLED_MESSAGE = 'Online appointment booking is temporarily unavailable due to a high volume of patients. Please contact the clinic for assistance.';
 const APPOINTMENT_SLOT_INTERVAL_MINUTES = 10;
+const SAME_DAY_PATIENT_BOOKING_STATUSES = [
+  'scheduled',
+  'confirmed',
+  'completed',
+  'no-show',
+  'cancellation_pending',
+  'reschedule_pending'
+];
 
 const isBookingEnabled = (settings) => settings.bookingEnabled !== false;
 const dayKeys = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
@@ -187,9 +195,10 @@ router.get('/available-dates', async (req, res) => {
     const maxDate = new Date();
     maxDate.setDate(today.getDate() + 90); // 3 months ahead
 
-    // Start from today so same-day booking works when there are remaining slots.
+    // Advance booking starts tomorrow. Same-day booking uses the available-slots endpoint.
     const checkDate = new Date(today);
     checkDate.setHours(0, 0, 0, 0);
+    checkDate.setDate(checkDate.getDate() + 1);
 
     while (checkDate <= maxDate) {
       const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -512,6 +521,21 @@ router.post('/book-appointment', authenticatePatient, [
         success: false,
         message: 'Please use Today Booking for same-day appointments'
       });
+    }
+
+    if (isSameDayBooking) {
+      const existingTodayAppointment = await Appointment.findOne({
+        patientUserId: patientUser._id,
+        appointmentDate: getDateRange(appointmentDate),
+        status: { $in: SAME_DAY_PATIENT_BOOKING_STATUSES }
+      });
+
+      if (existingTodayAppointment) {
+        return res.status(400).json({
+          success: false,
+          message: 'You already have an appointment booked for today. Please use Advance Booking for another day.'
+        });
+      }
     }
 
     const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
